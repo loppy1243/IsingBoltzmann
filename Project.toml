@@ -1,0 +1,7 @@
+name = "IsingBoltzmann"
+uuid = "5b03fc44-5e35-11e9-1cf9-d331b8b3233e"
+authors = ["Nicholas Todoroff <loppy1243@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
