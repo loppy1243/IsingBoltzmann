@@ -1,17 +1,28 @@
-export MetropolisIsing, dim, hamiltonian
+module Ising
+using ..Sampling, ..Spins
+using ..IsingBoltzmann: cartesian_prod
+export MetropolisIsing, dim, hamiltonian, partitionfunc
 
-struct MetropolisIsing{D} <: MetropolisHastings
+const MFloat64 = Union{Nothing, Float64}
+struct MetropolisIsing{D, R<:Ref{MFloat64}} <: MetropolisHastings{SpinGrid{D}}
     world::SpinGrid{D}
     coupling::Float64
     invtemp::Float64
     # Flip *at most* this many spins
     stepsize::Int
+
+    partitionfunc::R
+
+    MetropolisIsing{D, R}(world, coupling, invtemp, stepsize, partitionfunc=R(nothing)) #=
+         =# where {D, R<:Ref{MFloat64}} =
+        new(world, coupling, invtemp, stepsize, partitionfunc)
 end
-MetropolisIsing(world::SpinGrid, coupling, invtemp, stepsize) =
-    MetropolisIsing{ndims(world)}(world, coupling, invtemp, stepsize)
+function MetropolisIsing(world, coupling, invtemp, stepsize, partitionfunc=nothing)
+    ref = Ref{MFloat64}(partitionfunc)
+    MetropolisIsing{ndims(world), typeof(ref)}(world, coupling, invtemp, stepsize, ref)
+end
 Sampling.StepType(::Type{<:MetropolisIsing}) = Sampling.Reversible()
 
-Base.eltype(T::Type{<:MetropolisIsing}) = SpinGrid{dim(T)}
 function Base.show(io::IO, mime::MIME"text/plain", m::MetropolisIsing)
     println(io, "MetropolisIsing(..., $(m.coupling), $(m.invtemp), $(m.stepsize))")
     show(io, mime, m.world)
@@ -20,11 +31,13 @@ end
 dim(::Type{<:MetropolisIsing{D}}) where D = D
 dim(d::MetropolisIsing) = dim(typeof(d))
 
+hamiltonian(m::MetropolisIsing) = hamiltonian(m, m.world)
 hamiltonian(m::MetropolisIsing, x) =
     -m.coupling*(
         sum(eachindex(x)) do i; sum(neighborhood(x, i)) do n
             2*xor(x[i], n) - 1
-        end end)
+        end end
+    )
 ## We get a 2 since we have to consider the contribution of the site that flipped and its
 ## neighbors' contributions
 hamildiff(m::MetropolisIsing, (ixs, flips)) =
@@ -42,9 +55,41 @@ function neighborhood(x::SpinGrid{2}, I)
     (x[i-1, j], x[i+1, j], x[i, j-1], x[i, j+1])
 end
 
+pdf(m::MetropolisIsing, x) = exp(-m.invtemp*hamiltonian(m, x))/partitionfunc(m)
+partitionfunc(m::MetropolisIsing) =
+    isnothing(m.partitionfunc[]) ? _partitionfunc(m) : m.partitionfunc[]
+function _partitionfunc(m)
+    spingrid = similar(m.world)
+    sum = 0.0
+    for spins in cartesian_prod((SPINDN, SPINUP), length(spingrid))
+        spingrid[:] .= spins
+        sum += exp(-m.invtemp*hamiltonian(m, spingrid))
+    end
+
+    m.partitionfunc[] = sum
+
+    sum
+end
+
+exact_rand(m::MetropolisIsing) = exact_rand(GLOBAL_RNG, m)
+function exact_rand(rng, m::MetropolisIsing)
+    spingrid = similar(m.world)
+    sum = 0.0
+    for spins in cartesian_prod(SPINS, length(spins))
+        spingrid[:] .= spins
+        spingrid == x && break
+
+        sum += pdf(m, args)
+
+        rand(rng) <= sum && return spingrid
+    end
+
+    world
+end
+
 Sampling.currentsample(m::MetropolisIsing) = m.sample
 
-Sampling.logprobdiff(m::MetropolisIsing, dx) = -hamildiff(m, dx)/m.invtemp
+Sampling.logprobdiff(m::MetropolisIsing, dx) = -m.invtemp*hamildiff(m, dx)
 Sampling.logtprobdiff(m::MetropolisIsing, dx) = 1
 
 Sampling.stepto!(m::MetropolisIsing, y) = (m.world .= y; nothing)
@@ -65,3 +110,5 @@ function Sampling.stepback!(m::MetropolisIsing, (ixs, flips))
 
     nothing
 end
+
+end # module Ising
