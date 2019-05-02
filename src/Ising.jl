@@ -1,5 +1,5 @@
 module Ising
-using ..Sampling, ..Spins
+using ..Sampling, ..Spins, ..PeriodicArrays
 using ..IsingBoltzmann: cartesian_prod
 export MetropolisIsing, dim, hamiltonian, partitionfunc
 
@@ -35,7 +35,7 @@ hamiltonian(m::MetropolisIsing) = hamiltonian(m, m.world)
 hamiltonian(m::MetropolisIsing, x) =
     -m.coupling*(
         sum(eachindex(x)) do i; sum(neighborhood(x, i)) do n
-            2*xor(x[i], n) - 1
+            1 - 2*xor(x[i], n)
         end end
     )
 ## We get a 2 since we have to consider the contribution of the site that flipped and its
@@ -44,16 +44,24 @@ hamildiff(m::MetropolisIsing, (ixs, flips)) =
     -2*m.coupling*(
         sum(ixs) do i; sum(neighborhood(m.world, i)) do n
             # == (2*xor(m.world[i], n) - 1) - (2*xor(flipspin(m.world[i]), n) - 1)
-            2*(xor(m.world[i], n) - xor(flipspin(m.world[i]), n))
+            2*(xor(flipspin(m.world[i]), n) - xor(m.world[i], n))
         end end)
 
 ## Can be generalized to a @generated function
-neighborhood(x::SpinGrid{1}, i) = (x[i-1], x[i+1])
-function neighborhood(x::SpinGrid{2}, I)
+neighborhood(x::PeriodicArray{<:Any, 1}, i) = (x[i-1], x[i+1])
+function neighborhood(x::PeriodicArray{<:Any, 2}, I)
     i, j = Tuple(CartesianIndex(I))
 
     (x[i-1, j], x[i+1, j], x[i, j-1], x[i, j+1])
 end
+neighborhood(x::AbstractArray{<:Any, 1}, i) =
+    if i == 1
+        (x[i+1],)
+    elseif i == length(x)
+        (x[i-1],)
+    else
+        (x[i-1], x[i+1])
+    end
 
 pdf(m::MetropolisIsing, x) = exp(-m.invtemp*hamiltonian(m, x))/partitionfunc(m)
 partitionfunc(m::MetropolisIsing) =
