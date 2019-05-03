@@ -44,20 +44,23 @@ function batch(x, batchsize)
 end
 
 function main1D()
-    D = 1; N = 6
+    D = 1; N = 6; N_hidden = N;
     nepochs = 1000
     sample_epochs = (10, 500, 1000)
-    samplesize = 1000
+    # Training with samplesize=10^5 is pretty slow, but doesn't produce better results (though
+    # everything here is running serially, so it could be faster).
+    samplesize = 10^3
     batchsize = 50
 
+    # Put seed here    \/      if so desired.
     seed = Random.seed!().seed
 
-    m = MetropolisIsing(spinrand(N), 1.0, 0.4, 1)
+    m = MetropolisIsing(spinrand(N), 1.0, 0.4, 1, 0)
     ising_samples = rand(m, samplesize)
     ising_batches = batch(ising_samples, batchsize)
 
-    init(dims...) = sqrt(inv(2+N)).*2.0.*(rand(dims...) .- 0.5)
-    rbm = ReducedBoltzmann(N, N; init=init, learning_rate=0.01, cd_num=5)
+    init(dims...) = sqrt(inv(N+N_hidden)).*2.0.*(rand(dims...) .- 0.5)
+    rbm = ReducedBoltzmann(N, N_hidden; init=init, learning_rate=0.01, cd_num=5)
 
     prob_rbm = Dict(epoch => Vector{Float64}(undef, 2^N) for epoch in sample_epochs)
     kldivs_exact = Vector{Float64}(undef, nepochs+1)

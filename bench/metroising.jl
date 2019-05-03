@@ -26,14 +26,14 @@ function hist(rng, sampler, n)
     counts
 end
 
-SEED = 5934710469484289361
+SEED = 1830375382140242722
 max_burn = 10^7
 max_skip = 2*10^3
 max_samples = 10^6
 
 n_burn_samples = 10^5
 n_autocorr_samples = 10^3
-n_accept_prob_samples = 10^2
+n_accept_prob_samples = 10^3
 
 burn_sample_interval = 2*10^5
 skip_sample_interval = 5
