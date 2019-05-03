@@ -40,7 +40,7 @@ function _rand(rng, m::MetropolisHastings, ::Reversible, copy)
         stepback!(m, dx)
         m.world
     end
-    copy ? copy(ret) : ret
+    copy ? Base.copy(ret) : ret
 end
 function _rand(rng, m::MetropolisHastings, ::StepType, _)
     x = currentsample(m)
