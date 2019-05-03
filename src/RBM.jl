@@ -1,5 +1,6 @@
 module RBM
-using Random, Flux
+using Flux
+using Random, Statistics
 using ..IsingBoltzmann: bitstrings
 export ReducedBoltzmann, energy, partitionfunc, pdf, input_pdf, update!, train!, kldiv
 
@@ -122,6 +123,17 @@ function Random.rand(rng::AbstractRNG, cd::RBMCD; copy=true)
     copy ? (Base.copy(cd.hiddens), Base.copy(cd.inputs)) : (cd.hiddens, cd.inputs)
 end
 
+function entropy(batch)
+    counts = Dict{eltype(batch), Int}()
+    for σ in batch
+        counts[σ] = get(counts, σ, 0) + 1
+    end
+
+    -length(batch)\sum(keys(counts)) do σ
+        counts[σ]*log(counts[σ]/length(batch))
+    end
+end
+
 ## Exact
 kldiv(rbm, target_pdf::Function) = sum(bitstrings(rbm.inputsize)) do inputs
     p = target_pdf(inputs)
@@ -131,15 +143,11 @@ end
 function kldiv(rbm, batch)
     L = length(batch)
 
-    log_sum = L\sum(batch) do σ
+    avg_log_likelihood = mean(batch) do σ
         log(input_pdf(rbm, σ))
     end
-    entropy = L\sum(batch) do σ
-        c = count(==(σ), batch)
-        c*log(c/L)
-    end
 
-    -log_sum - entropy
+    -avg_log_likelihood - entropy(batch)
 end
 
 function kldiv_grad_exact!(rbm, target_pdf)
@@ -168,7 +176,7 @@ function kldiv_grad!(rbm, batch)
         rbm.cdavg_hidden .= z
         rbm.cdavg_corr   .= z
 
-        cd = RBMCD(rbm, σ; skip=10)
+        cd = RBMCD(rbm, σ#=; skip=10=#)
         for _ = 1:rbm.cd_num
             h, σ2 = rand(rbm.rng, cd; copy=false)
             rbm.cdavg_input  .+= σ2
@@ -216,12 +224,12 @@ function update!(rbm, batch)
 end
 
 function train!(rbm, minibatches; rng=Random.GLOBAL_RNG)
-#    perm = randperm(rng, size(minibatches, ndims(minibatches)))
-#    permute!(minibatches, perm)
+    perm = randperm(rng, size(minibatches, ndims(minibatches)))
+    permute!(minibatches, perm)
 
     for b in minibatches; update!(rbm, b) end
 
-#    perm
+    perm
 end
 
 end # module RBM
