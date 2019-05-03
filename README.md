@@ -47,6 +47,11 @@ divergence and the exact KL divergence to agree (defined as `kldiv()` in `src/RB
 the approximation appears to have a random value compared to the exact. The plot of the KL
 divergence for the case of
 ```
+# Ising
+J=1.0; kB*T=0.4; stepsize=1; skip=0
+
+# RBM
+ising_samplesize=10^3; ising_batchsize=50; learning_rate=0.01; cd_num=5
 ```
 can be found in `kldiv_1D.pdf`, and the prob. dist. comparison can be found in `pdf_1D.pdf`.
 
