@@ -47,7 +47,7 @@ function main1D()
     D = 1; N = 6
     nepochs = 1000
     sample_epochs = (10, 500, 1000)
-    samplesize = 10^5
+    samplesize = 1000
     batchsize = 50
 
     seed = Random.seed!().seed
@@ -57,7 +57,7 @@ function main1D()
     ising_batches = batch(ising_samples, batchsize)
 
     init(dims...) = sqrt(inv(2+N)).*2.0.*(rand(dims...) .- 0.5)
-    rbm = ReducedBoltzmann(N, 2; init=init, learning_rate=0.01, cd_num=5)
+    rbm = ReducedBoltzmann(N, N; init=init, learning_rate=0.01, cd_num=5)
 
     prob_rbm = Dict(epoch => Vector{Float64}(undef, 2^N) for epoch in sample_epochs)
     kldivs_exact = Vector{Float64}(undef, nepochs+1)
@@ -122,7 +122,7 @@ function main1D()
     end
     savefig("pdf_1D.pdf")
 
-    (seed, rbm)
+    rbm
 end
 
 end # module IsingBoltzmann

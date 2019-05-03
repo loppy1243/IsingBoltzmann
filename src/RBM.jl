@@ -23,10 +23,6 @@ struct ReducedBoltzmann{T, V, M, Rng, Rf<:Ref{MFloat64}}
     hiddengrad::Vector{T}
     weightsgrad::Matrix{T}
 
-    cdavg_input::Vector{T}
-    cdavg_hidden::Vector{T}
-    cdavg_corr::Matrix{T}
-
     condavg_hidden::Vector{T}
 
     rng::Rng
@@ -38,7 +34,6 @@ function ReducedBoltzmann(inputbias, hiddenbias, weights; learning_rate, cd_num,
     ReducedBoltzmann{eltype(inputbias), typeof(inputbias), typeof(weights), typeof(rng), typeof(ref)}(
         length(inputbias), length(hiddenbias),
         inputbias, hiddenbias, weights, learning_rate, cd_num,
-        similar(inputbias), similar(hiddenbias), similar(weights),
         similar(inputbias), similar(hiddenbias), similar(weights),
         similar(hiddenbias),
         rng,
@@ -61,7 +56,6 @@ function ReducedBoltzmann(
     ReducedBoltzmann{eltype(inputbias), typeof(inputbias), typeof(weights), typeof(rng), typeof(ref)}(
         inputsize, hiddensize,
         inputbias, hiddenbias, weights, learning_rate, cd_num,
-        similar(inputbias), similar(hiddenbias), similar(weights),
         similar(inputbias), similar(hiddenbias), similar(weights),
         similar(hiddenbias),
         rng,
@@ -102,22 +96,29 @@ condprob_hidden1(rbm, k, σ) = sigmoid(rbm.hiddenbias[k] + rbm.weights[k, :]'σ)
 #condavg_input(rbm, h) = sigmoid.(rbm.inputbias .+ rbm.weights'h)
 condavg_hidden!(rbm, σ) = rbm.condavg_hidden .= sigmoid.(rbm.hiddenbias .+ rbm.weights*σ)
 
-struct RBMCD <: Random.Sampler{NTuple{2, BitVector}}
+struct RBM_AltGibbs <: Random.Sampler{NTuple{2, BitVector}}
     rbm::ReducedBoltzmann
-    hiddens::BitVector
     inputs::BitVector
-    skip::Int
+    hiddens::BitVector
 end
-RBMCD(rbm, inputs0; skip=0) = RBMCD(rbm, BitVector(undef, rbm.hiddensize), inputs0, skip)
+function RBM_AltGibbs(rbm, inputs0)
+    hiddens = BitVector(undef, rbm.hiddensize)
 
-function Random.rand(rng::AbstractRNG, cd::RBMCD; copy=true)
-    for _ = 1:cd.skip+1
-        for k in eachindex(cd.hiddens)
-            cd.hiddens[k] = rand(rng) <= condprob_hidden1(cd.rbm, k, cd.inputs)
-        end
-        for k in eachindex(cd.inputs)
-            cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
-        end
+    for k in eachindex(hiddens)
+        hiddens[k] = rand(rbm.rng) <= condprob_hidden1(rbm, k, inputs0)
+    end
+
+    RBM_AltGibbs(rbm, inputs0, hiddens)
+end
+
+Random.rand(cd::RBM_AltGibbs, args...; kwargs...) =
+    rand(cd.rbm.rng, cd, args...; copy=copy, kwargs...)
+function Random.rand(rng::AbstractRNG, cd::RBM_AltGibbs; copy=true)
+    for k in eachindex(cd.inputs)
+        cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
+    end
+    for k in eachindex(cd.hiddens)
+        cd.hiddens[k] = rand(rng) <= condprob_hidden1(cd.rbm, k, cd.inputs)
     end
 
     copy ? (Base.copy(cd.hiddens), Base.copy(cd.inputs)) : (cd.hiddens, cd.inputs)
@@ -129,8 +130,8 @@ function entropy(batch)
         counts[σ] = get(counts, σ, 0) + 1
     end
 
-    -length(batch)\sum(keys(counts)) do σ
-        counts[σ]*log(counts[σ]/length(batch))
+    -sum(keys(counts)) do σ
+        counts[σ]/length(batch)*log(counts[σ]/length(batch))
     end
 end
 
@@ -147,7 +148,9 @@ function kldiv(rbm, batch)
         log(input_pdf(rbm, σ))
     end
 
-    -avg_log_likelihood - entropy(batch)
+    entrop = entropy(batch)
+
+    -avg_log_likelihood - entrop
 end
 
 function kldiv_grad_exact!(rbm, target_pdf)
@@ -171,32 +174,25 @@ function kldiv_grad!(rbm, batch)
     rbm.hiddengrad  .= z
     rbm.weightsgrad .= z
 
+    L = length(batch)
     for σ in batch
-        rbm.cdavg_input  .= z
-        rbm.cdavg_hidden .= z
-        rbm.cdavg_corr   .= z
-
-        cd = RBMCD(rbm, σ#=; skip=10=#)
+        σh_sampler = RBM_AltGibbs(rbm, σ)
+#        h = copy(σh_sampler.hiddens)
         for _ = 1:rbm.cd_num
-            h, σ2 = rand(rbm.rng, cd; copy=false)
-            rbm.cdavg_input  .+= σ2
-            rbm.cdavg_hidden .+= h
-            rbm.cdavg_corr   .+= h*σ2'
+            h2, σ2 = rand(σh_sampler; copy=false)
+            rbm.inputgrad   .+= σ2     ./ rbm.cd_num ./ L
+            rbm.hiddengrad  .+= h2     ./ rbm.cd_num ./ L
+            rbm.weightsgrad .+= h2*σ2' ./ rbm.cd_num ./ L
         end
-        rbm.inputgrad   .+= rbm.cdavg_input  ./ rbm.cd_num
-        rbm.hiddengrad  .+= rbm.cdavg_hidden ./ rbm.cd_num
-        rbm.weightsgrad .+= rbm.cdavg_corr   ./ rbm.cd_num
 
         condavg_hidden!(rbm, σ)
 
-        rbm.inputgrad   .-= σ
-        rbm.hiddengrad  .-= rbm.condavg_hidden
-        rbm.weightsgrad .-= rbm.condavg_hidden*σ'
+        rbm.inputgrad   .-= σ ./ L
+        rbm.hiddengrad  .-= rbm.condavg_hidden ./ L
+        rbm.weightsgrad .-= rbm.condavg_hidden*σ' ./ L
+#        rbm.hiddengrad  .-= h ./ L
+#        rbm.weightsgrad .-= h*σ' ./ L
     end
-    L = length(batch)
-    rbm.inputgrad ./= L
-    rbm.hiddengrad ./= L
-    rbm.weightsgrad ./= L
 
     rbm.inputgrad, rbm.hiddengrad, rbm.weightsgrad
 end
@@ -227,7 +223,9 @@ function train!(rbm, minibatches; rng=Random.GLOBAL_RNG)
     perm = randperm(rng, size(minibatches, ndims(minibatches)))
     permute!(minibatches, perm)
 
-    for b in minibatches; update!(rbm, b) end
+    for (k, b) in minibatches |> enumerate
+        update!(rbm, b)
+    end
 
     perm
 end
