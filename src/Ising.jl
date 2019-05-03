@@ -10,16 +10,17 @@ struct MetropolisIsing{D, R<:Ref{MFloat64}} <: MetropolisHastings{SpinGrid{D}}
     invtemp::Float64
     # Flip *at most* this many spins
     stepsize::Int
+    skip::Int
 
     partitionfunc::R
 
-    MetropolisIsing{D, R}(world, coupling, invtemp, stepsize, partitionfunc=R(nothing)) #=
+    MetropolisIsing{D, R}(world, coupling, invtemp, stepsize, skip, partitionfunc=R(nothing)) #=
          =# where {D, R<:Ref{MFloat64}} =
-        new(world, coupling, invtemp, stepsize, partitionfunc)
+        new(world, coupling, invtemp, stepsize, skip, partitionfunc)
 end
-function MetropolisIsing(world, coupling, invtemp, stepsize, partitionfunc=nothing)
+function MetropolisIsing(world, coupling, invtemp, stepsize, skip, partitionfunc=nothing)
     ref = Ref{MFloat64}(partitionfunc)
-    MetropolisIsing{ndims(world), typeof(ref)}(world, coupling, invtemp, stepsize, ref)
+    MetropolisIsing{ndims(world), typeof(ref)}(world, coupling, invtemp, stepsize, skip, ref)
 end
 Sampling.StepType(::Type{<:MetropolisIsing}) = Sampling.Reversible()
 
@@ -96,6 +97,7 @@ function exact_rand(rng, m::MetropolisIsing)
 end
 
 Sampling.currentsample(m::MetropolisIsing) = m.sample
+Sampling.skip(m::MetropolisIsing) = m.skip
 
 Sampling.logrelprob(m::MetropolisIsing, x) = -m.invtemp*hamiltonian(m, x)
 Sampling.logtprob(m::MetropolisIsing, y, x) = 0

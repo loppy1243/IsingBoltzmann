@@ -45,24 +45,32 @@ function _rand(rng, m::MetropolisHastings, ::Reversible, copy)
     y, dx = stepforward!(m, rng=rng)
     p = logprobdiff(m, dx) + logtprobdiff(m, dx)
 
-    ret = if p >= 0 || log(rand(rng)) <= p
-        y
-    else
-        stepback!(m, dx)
-        m.world
+    local ret
+    for _ = 1:skip(m)+1
+        ret = if p >= 0 || log(rand(rng)) <= p
+            y
+        else
+            stepback!(m, dx)
+            m.world
+        end
     end
     copy ? Base.copy(ret) : ret
 end
-function _rand(rng, m::MetropolisHastings, ::StepType, _)
+function _rand(rng, m::MetropolisHastings, ::StepType, copy)
     x = currentsample(m)
     y = step(m, rng=rng)
     p = log_accept_prob(m, y, x)
-    if p >= 0 || log(rand(rng)) <= p
-        stepto!(m, y)
-        y
-    else
-        copy(x)
+
+    local ret
+    for _ = 1:skip(m)+1
+        ret = if p >= 0 || log(rand(rng)) <= p
+            stepto!(m, y)
+            y
+        else
+            x
+        end
     end
+    copy ? Base.copy(ret) : ret
 end
 
 end # module Sampling
