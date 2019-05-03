@@ -97,8 +97,11 @@ end
 
 Sampling.currentsample(m::MetropolisIsing) = m.sample
 
+Sampling.logrelprob(m::MetropolisIsing, x) = -m.invtemp*hamiltonian(m, x)
+Sampling.logtprob(m::MetropolisIsing, y, x) = 0
+
 Sampling.logprobdiff(m::MetropolisIsing, dx) = -m.invtemp*hamildiff(m, dx)
-Sampling.logtprobdiff(m::MetropolisIsing, dx) = 1
+Sampling.logtprobdiff(m::MetropolisIsing, dx) = 0
 
 Sampling.stepto!(m::MetropolisIsing, y) = (m.world .= y; nothing)
 function Sampling.stepforward!(m::MetropolisIsing; rng=GLOBAL_RNG)
