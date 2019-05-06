@@ -85,7 +85,9 @@ _partitionfunc(rbm) = rbm.partitionfunc[] = Flux.data(sum(
 #        inputs  in bitstrings(rbm.inputsize)
 #)
 
-pdf(rbm, inputs, hidden) = exp(-energy(rbm, inputs, hidden))/partitionfunc(rbm)
+pdf(rbm) = (inputs, hiddens) -> RBM.pdf(rbm, inputs, hiddens)
+pdf(rbm, inputs, hiddens) = exp(-energy(rbm, inputs, hiddens))/partitionfunc(rbm)
+input_pdf(rbm) = inputs -> RBM.input_pdf(rbm, inputs)
 input_pdf(rbm, inputs) = exp(-eff_energy(rbm, inputs))/partitionfunc(rbm)
 
 sigmoid(x) = inv(one(x)+exp(-x))

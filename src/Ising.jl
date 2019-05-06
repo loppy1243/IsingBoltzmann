@@ -113,6 +113,7 @@ function neighborhood(m::IsingModel{2, FixedBoundary}, x::AbstractSpinGrid{2}, i
     [ret_i; ret_j]
 end
 
+pdf(m::IsingModel) = x -> Ising.pdf(m, x)
 pdf(m::IsingModel, x) = exp(-m.invtemp*hamiltonian(m, x))/partitionfunc(m)
 partitionfunc(m::IsingModel) =
     isnothing(m.partitionfunc) ? _partitionfunc(m) : m.partitionfunc

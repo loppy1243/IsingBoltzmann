@@ -75,7 +75,7 @@ function main1D()
     numfmt(num) = @sprintf("%.5f", num)
     deltafmt(num) = @sprintf("%+.5f", num)
     for epoch = 1:nepochs
-        kld_exact = kldiv(rbm, σ -> Ising.pdf(m, σ))
+        kld_exact = kldiv(rbm, Ising.pdf(m))
         kld_approx = kldiv(rbm, ising_samples)
         kldivs_exact[epoch] = kld_exact
         kldivs_approx[epoch] = kld_approx
@@ -95,7 +95,7 @@ function main1D()
             end
         end
     end
-    kld_exact = kldiv(rbm, σ -> Ising.pdf(m, σ))
+    kld_exact = kldiv(rbm, Ising.pdf(m))
     kld_approx = kldiv(rbm, ising_samples)
     kldivs_exact[nepochs+1] = kld_exact
     kldivs_approx[nepochs+1] = kld_approx
