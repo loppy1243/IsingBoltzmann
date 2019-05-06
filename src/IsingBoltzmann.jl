@@ -55,7 +55,8 @@ function main1D()
     # Put seed here    \/      if so desired.
     seed = Random.seed!().seed
 
-    m = MetropolisIsing(spinrand(N), 1.0, 0.4, 1, 0)
+    m = IsingModel(N; coupling=1.0, invtemp=0.4)
+    metro = MetropolisIsing(m, spinrand(N))
     ising_samples = rand(m, samplesize)
     ising_batches = batch(ising_samples, batchsize)
 
