@@ -19,12 +19,55 @@ end
 #   log_trans_prob(m, currentstate(m)-dx, currentstate(m)) #=
 #   #= - log_trans_prob(m, currenstate(m), currentstate(m)-dx)
 
+"""
+    MetropolisHastings{T}
 
+Abstract type for Metropolis-Hastings samplers producing elements of type `T`.
+
+There are two main sets of methods to implement depending on the trait `Sampling.StepType`.
+See `Sampling.Default` and `Sampling.Reversible`.
+"""
 abstract type MetropolisHastings{T} end
 Random.gentype(::Type{MetropolisHastings{T}}) where T = T
 skip(::MetropolisHastings) = 0
+
+"""
+    Sampling.StepType
+
+Trait specifying how `MetropolisHastings` steps can be performed.
+"""
 abstract type StepType end
+
+"""
+     Sampling.StepType(::MetropolisHastings) = Sampling.Default()
+
+Default step type for `MetropolisHastings`. Each Metropolis step generates a completely new
+state. Methods to implement:
+
+    step(::AbstractRNG, ::MetropolisHastings)
+    stepto!(::MetropolisHastings, x)
+    log_relprob(::MetropolisHastings, x)
+    log_trans_prob(::MetropolisHastings, y, x)
+
+    # Optional
+    log_relprob(::MetropolisHastings, y, x)
+    skip(::MetropolisHastings)
+"""
 struct Default <: StepType end
+"""
+     Sampling.StepType(::MetropolisHastings) = Sampling.Reversible()
+
+Reversible step type for `MetropolisHastings`. Implement this if Metropolis steps are
+reversible and can be performed as a small "delta" between states. Methods to implement:
+
+    stepforward!(::AbstractRNG, ::MetropolisHastings)
+    stepback!(::MetropolisHastings, dx)
+    log_probdiff(::MetropolisHastings, dx)
+    log_trans_probdiff(::MetropolisHastings, dx)
+
+    # Optional
+    skip(::MetropolisHastings)
+"""
 struct Reversible <: StepType end
 StepType(::Type{<:MetropolisHastings}) = Default()
 StepType(m::MetropolisHastings) = StepType(typeof(m))
