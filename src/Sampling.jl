@@ -22,20 +22,24 @@ end
 
 abstract type MetropolisHastings{T} end
 Random.gentype(::Type{MetropolisHastings{T}}) where T = T
+skip(::MetropolisHastings) = 0
 abstract type StepType end
 struct Default <: StepType end
 struct Reversible <: StepType end
 StepType(::Type{<:MetropolisHastings}) = Default()
 StepType(m::MetropolisHastings) = StepType(typeof(m))
 
-step(m::MetropolisHastings, rng=GLOBAL_RNG) = _step(m::MetropolisHastings, StepType(m), rng)
-function _step(m::MetropolisHastings, ::Reversible, rng)
-    y, dx = stepforward!(m, rng=rng)
+step(rng::AbstractRNG, m::MetropolisHastings) = _step(rng, m, StepType(m))
+function _step(rng, m::MetropolisHastings, ::Reversible)
+    y, dx = stepforward!(rng, m)
     y_copy = copy(y)
     stepback!(m, dx)
 
     y_copy
 end
+
+step(m::MetropolisHastings) = step(Random.GLOBAL_RNG, m)
+stepforward!(m::MetropolisHastings) = stepforward!(Random.GLOBAL_RNG, m)
 
 log_accept_prob(m::MetropolisHastings, y, x) =
     log_relprob(m, y, x) + log_trans_prob(m, x, y) - log_trans_prob(m, y, x)
