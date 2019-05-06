@@ -7,8 +7,8 @@ export MetropolisHastings,
        log_accept_prob
 
 ## Define functions we don't define here so that they can be specialized
-for sym in (:currentsample, :stepto!, :stepback!, :log_probdiff, :log_trans_prob,
-            :log_trans_probdiff)
+for sym in (:currentsample, :stepto!, :stepback!, :log_relprob, :log_probdiff,
+            :log_trans_prob, :log_trans_probdiff)
     @eval $sym() = throw(MethodError($sym, ()))
 end
 
@@ -77,11 +77,11 @@ StepType(m::MetropolisHastings) = StepType(typeof(m))
 
 step(rng::Random.AbstractRNG, m::MetropolisHastings) = _step(rng, m, StepType(m))
 function _step(rng, m::MetropolisHastings, ::Reversible)
-    y, dx = stepforward!(rng, m)
-    y_copy = copy(y)
+    dx = stepforward!(rng, m)
+    ret = copy(currentsample(m))
     stepback!(m, dx)
 
-    y_copy
+    ret
 end
 
 step(m::MetropolisHastings) = step(Random.GLOBAL_RNG, m)
@@ -91,7 +91,7 @@ log_accept_prob(m::MetropolisHastings, y, x) =
     log_relprob(m, y) - log_relprob(m, x) + log_trans_prob(m, x, y) - log_trans_prob(m, y, x)
 
 Random.rand(rng::Random.AbstractRNG, m::Random.SamplerTrivial{<:MetropolisHastings}; copy=true) =
-    _rand(rng, m[], StepType(m), copy)
+    _rand(rng, m[], StepType(m[]), copy)
 function _rand(rng, m::MetropolisHastings, ::Reversible, copy)
     for _ = 0:skip(m)
         dx = stepforward!(rng, m)
@@ -111,7 +111,7 @@ function _rand(rng, m::MetropolisHastings, ::StepType, copy)
 
         if p >= 0 || log(rand(rng)) <= p
             stepto!(m, y)
-        else
+        end
     end
 
     copy ? Base.copy(currentsample(m)) : currentsample(m)

@@ -55,21 +55,21 @@ function main1D()
     # Put seed here    \/      if so desired.
     seed = Random.seed!().seed
 
-    m = IsingModel(N; coupling=1.0, invtemp=0.4)
+    m = IsingModel(Ising.FixedBoundary, N; coupling=1.0, invtemp=0.4)
     metro = MetropolisIsing(m, spinrand(N))
-    ising_samples = rand(m, samplesize)
+    ising_samples = rand(metro, samplesize)
     ising_batches = batch(ising_samples, batchsize)
 
     init(dims...) = sqrt(inv(N+N_hidden)).*2.0.*(rand(dims...) .- 0.5)
-    rbm = ReducedBoltzmann(N, N_hidden; init=init, learning_rate=0.01, cd_num=5)
+    rbm = RestrictedBoltzmann(N, N_hidden; init=init, learning_rate=0.01, cd_num=5)
 
     prob_rbm = Dict(epoch => Vector{Float64}(undef, 2^N) for epoch in sample_epochs)
     kldivs_exact = Vector{Float64}(undef, nepochs+1)
     kldivs_approx = Vector{Float64}(undef, nepochs+1)
 
     prob_exact = Vector{Float64}(undef, 2^N)
-    for (k, σ) in bitstrings(N) |> enumerate
-        prob_exact[k] = Ising.pdf(m, SpinGrid(σ))
+    for (k, σ) in spinstrings(N) |> enumerate
+        prob_exact[k] = Ising.pdf(m, reshape(σ, m.size))
     end
 
     epochfmt(epoch) = lpad(epoch, ndigits(nepochs))
@@ -111,19 +111,29 @@ function main1D()
 
     Plots.gr()
 
-    plot(0:nepochs, [kldivs_exact kldivs_approx],
+    plot(0:nepochs, [kldivs_exact kldivs_approx], label=["Exact" "Approx"],
         yscale = :log10,
         title="Ising 1D RBM KL Divergence", xlabel="Epoch", ylabel="KL Divergence"
     )
     savefig("kldiv_1D.pdf")
 
-    plot(1:2^N, prob_exact, label="Exact",
-        yscale = :log10, markershape=:auto,
-        title="Ising 1D PDF", xlabel="\$\\sigma\$", ylabel="\$P(\\sigma)\$"
-    )
+    first = true
+    plts = []
     for epoch in sample_epochs
-        plot!(1:2^N, prob_rbm[epoch], label="RBM (epochs=$epoch)", markershape=:auto)
+        plt = plot(1:2^N, prob_exact, label="Exact",
+            yscale = :log10, markershape=:auto,
+            title="Epochs=$epoch", xlabel="\$\\sigma\$", ylabel="\$P(\\sigma)\$",
+            legend=(first && (:top))
+        )
+        plot!(1:2^N, prob_rbm[epoch], label="RBM", markershape=:auto)
+
+        push!(plts, plt)
+        first = false
     end
+    sz = Plots.default(:size)
+    plot(plts...,
+         layout=(length(sample_epochs), 1), size=(sz[1], length(sample_epochs)*sz[2])
+    )
     savefig("pdf_1D.pdf")
 
     rbm

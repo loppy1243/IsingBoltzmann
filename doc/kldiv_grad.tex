@@ -1,0 +1,143 @@
+\newcommand\Pdat{P^0}
+\newcommand\Pk{P^k_\lambda}
+\newcommand\Peq{P^\infty_\lambda}
+
+\subsection{Formulation}
+This is what I have been able to piece together on how to (approximately) compute the gradient
+of the KL divergence for a Restricted Boltzmann Machine (RBM) based on Hinton\cite{Hinton2002}
+and Torlai and Melko\cite{TorlaiMelko2016}. \cite{Hinton2002} is the source of this scheme,
+and (while not immediately clear on the first reading) contains all the necessary information.
+\cite{TorlaiMelko2016}, on the other hand, makes reference to \cite{Hinton2002}, but on its
+own it \emph{does not} have all the necessary information and I would even say that it is
+misleading; it was still mildly helpful in pieceing the puzzle together, though.
+
+The (approximate) formulae for the KL divergence gradients may be written as
+\begin{subequations}\label{eqn:kldiv-grad}\begin{align}
+\label{eqn:kldiv-grad:W}
+\Dgrad_{W_{ij}}\KL(\Pdat || \Peq)
+&\approx \avg*{\sigma_j\avg*{h_i}_{\Peq(\vv h|\vv*\sigma)}}_{\Pk(\vv*\sigma)}
+         - \avg*{\sigma_j\avg*{h_i}_{\Peq(\vv h|\vv*\sigma)}}_{\Pdat(\vv*\sigma)}
+\\
+\label{eqn:kldiv-grad:b}
+\Dgrad_{b_j}\KL(\Pdat || \Peq)
+&\approx \avg*{\sigma_j}_{\Pk(\vv*\sigma)} - \avg*{\sigma_j}_{\Pdat(\vv*\sigma)}
+\\
+\label{eqn:kldiv-grad:c}
+\Dgrad_{c_i}\KL(\Pdat || \Peq)
+&\approx \avg*{\avg*{h_i}_{\Peq(\vv h|\vv*\sigma)}}_{\Pk(\vv*\sigma, \vv h)}
+         - \avg*{\avg*{h_i}_{\Peq(\vv h|\vv*\sigma)}}_{\Pdat(\vv*\sigma)}
+\end{align}\end{subequations}
+This is the \emph{contrastive-divergence} or CD-$k$ approximation. $\lambda = (\vv W, \vv b,
+\vv c)$ represents the parameters in the energy
+\begin{equation}
+E_\lambda(\vv*\sigma, \vv h)
+= \vv b\trans\vv*\sigma + \vv h\trans\vv c + \vv h\trans\vv W\vv*\sigma.
+\end{equation}
+$\Pdat(\vv*\sigma)$ is the distribution of input data. $\Peq(\vv*\sigma, \vv h)$
+is the joint distribution over input and hidden nodes of the RBM, with the marginal
+distribution
+\begin{equation}
+\Peq(\vv*\sigma) = \sum_{\vv h}\Peq(\vv*\sigma, \vv h)
+\end{equation}
+being the RBM's approximation to the exact input data distribution, and
+\begin{equation}
+\Peq(\vv h|\vv*\sigma) = \frac{\Peq(\vv*\sigma, \vv h)}{\Peq(\vv*\sigma)}
+\end{equation}
+is the conditional probability of $\vv h$.
+
+$\Pk(\vv*\sigma)$ for some $k$ is the distribution acquired from $k$ Gibbs sampling steps on
+$\Pdat$ via $\Peq$. More precisely, if we have an input data sequence
+$(\vv*\sigma_n)_{n=1}^N$ so that
+\begin{equation}
+\Pdat(\vv*\sigma) = \frac1N\sum_{n=1}^N[\vv*\sigma = \vv*\sigma_n]
+\end{equation}
+where $[\cdot]$ is the Iverson bracket, then we form the Markov chain
+\begin{equation}\label{mc:alt-gibbs}
+\vv*\sigma_n^{(0)} = \vv*\sigma_n \to \vv h_n^{(0)}
+\to \vv*\sigma_n^{(1)} \to \vv h_n^{(1)} \to \cdots
+\to \vv*\sigma_n^{(k)} \to \vv h_n^{(k)}
+\end{equation}
+by sampling $\vv h^{(l)}_n$ from $\Peq(\vv h|\vv*\sigma_n^{(l)})$ and sampling
+$\vv*\sigma_n^{(l+1)}$ from $\Peq(\vv*\sigma|\vv h_n^{(l)})$, with $l = 0,\dotsc,k$. The
+distribution $\Pk$ is then
+\begin{equation}\label{eqn:Pk}
+\Pk(\vv*\sigma)
+= \frac1N\sum_{n=1}^N[\vv*\sigma = \sigma_n^{(k)}].
+\end{equation}
+Forming the Markov chain is tractable, since the conditional probabilities factor and are
+easily computed:
+\begin{subequations}\label{eqn:cond-P}\begin{gather}
+\label{eqn:cond-P-factors}
+\Peq(\vv h|\vv*\sigma) = \prod_i \Peq(h_i|\vv*\sigma),\quad
+\Peq(\vv*\sigma|\vv h) = \prod_j \Peq(\sigma_j|\vv h),
+\\
+\label{eqn:cond-P(h=1)}
+\Peq(h_i=1|\vv*\sigma)
+= \sum_j\sigm(\vv W_j\vv*\sigma + b_j),
+\\
+\label{eqn:cond-P(s=1)}
+\Peq(\sigma_j=1|\vv h)
+= \sum_i\sigm(\vv h\trans\vv W^i + c_i).
+\end{gather}\end{subequations}
+The function $\sigm$ is the sigmoid function
+\begin{equation}
+\sigm(x) = \frac1{1+e^{-x}},
+\end{equation}
+and $\vv W_j$ is the $j^{\mathrm{th}}$ row of $\vv W$, and $\vv W^i$ the $i^{\mathrm{th}}$
+column of $\vv W$. Equations~\eqref{eqn:cond-P(h=1)} and \eqref{eqn:cond-P(s=1)} are
+sufficient since $h_i, \sigma_j$ are binary random variables.
+
+\subsection{Implementation}
+Since each $\vv*\sigma_n$ corresponds one-to-one with a $\vv*\sigma_n^{(k)}$, we see that we
+can perform both averages in Equations~\eqref{eqn:kldiv-grad} in the same loop, and so we do
+not have to precompute $(\vv*\sigma_n^{(k)})_{n=1}^N$. For example,
+\begin{align*}
+\Dgrad_{W_{ij}}\KL(\Pdat || \Peq)
+&\approx \avg*{\sigma_j\avg*{h_i}_{\Peq(\vv h|\vv*\sigma)}}_{\Pk(\vv*\sigma)}
+         - \avg*{\sigma_j\avg*{h_i}_{\Peq(\vv h|\vv*\sigma)}}_{\Pdat(\vv*\sigma)}
+\\
+&= \frac1N\sum_{n=1}^N\sigma_{n,j}^{(k)}\avg*{h_i}_{\Peq(\vv h|\vv*\sigma_n^{(k)})}
+   - \frac1N\sum{\sigma_{n,j}\avg*{h_i}_{\Peq(\vv h|\vv*\sigma_n)}}
+\\
+&= \frac1N\sum_{n=1}^N
+       \brak[]{\sigma_{n,j}^{(k)}\avg*{h_i}_{\Peq(\vv h|\vv*\sigma_n^{(k)})}
+               - \sigma_{n,j}\avg*{h_i}_{\Peq(\vv h|\vv*\sigma_n)}}.
+\end{align*}
+At this point, all we have left is to compute the averages over $h_i$. I have identified two
+options:
+\begin{enumerate}
+\item Since we have Equations~\eqref{eqn:cond-P}, we can compute the average over $\vv h$
+exactly:
+\begin{align}
+\avg*{h_i}_{\Peq(\vv h|\vv*\sigma)}
+&= 1\cdot \Peq(h_i=1|\vv*\sigma) + 0\cdot \Peq(h_i=0|\vv*\sigma)
+\nonumber
+\\
+\label{eqn:condavg-exact}
+&= \sum_j\sigm(\vv W_j\sigma + b_j).
+\end{align}
+
+\item It appears to be more common in the implementation of RBM's to instead make the
+approximations
+\begin{subequations}\label{eqn:condavg-approx}\begin{alignat}3
+\label{eqn:condavg^0-approx}
+\avg*{\vv h}_{\Peq(\vv h|\vv*\sigma_n)}
+&= \vv h_n^{(0)}\Peq(\vv h_n^{(0)}|\vv*\sigma_n)
+   &&+ \sum_{\vv h}\vv h\Peq(\vv h|\vv*\sigma_n)[\vv h\not=\vv h_n^{(0)}]
+&&\approx \vv h_n^{(0)},
+\\
+\label{eqn:condavg^k-approx}
+\avg*{\vv h}_{\Peq(\vv h|\vv*\sigma_n^{(k)})}
+&= \vv h_n^{(k)}\Peq(\vv h_n^{(k)}|\vv*\sigma_n^{(k)})
+   &&+ \sum_{\vv h}\vv h\Peq(\vv h|\vv*\sigma_n^{(k)})[\vv h\not=\vv h_n^{(k)}]
+&&\approx \vv h_n^{(k)}.
+\end{alignat}\end{subequations}
+By the definition of the Markov chain~\eqref{mc:alt-gibbs}, the probabilities $\Peq(\vv
+h_n^{(0)}|\vv*\sigma_n)$ and $\Peq(\vv h_n^{(k)}|\vv*\sigma_n^{(k)})$ will usually be high or
+approximately the same as that of each of the terms thrown away, hence why this approximation
+could be considered reasonable. At the very least, this is more computationally efficient than
+the exact method in Equation~\eqref{eqn:condavg-exact}. It is worth noting that in this
+approximate scheme $(\vv*\sigma_n^{(0)}, \vv h_n^{(0)})_{n=1}^N$ are aften called the
+\emph{positive} units, and $(\vv*\sigma_n^{(k)}, \vv h_n^{(k)})_{n=1}^N$ are called the
+\emph{negative} units.
+\end{enumerate}

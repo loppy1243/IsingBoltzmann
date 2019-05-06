@@ -1,7 +1,11 @@
 module Ising
+import Random
 using ..Sampling, ..Spins, ..PeriodicArrays
 using ..IsingBoltzmann: cartesian_prod
-export MetropolisIsing, dim, hamiltonian, partitionfunc
+export IsingModel, MetropolisIsing, AbstractSpinGrid, boundarycond, worldtype,
+       hamiltonian, partitionfunc, neighborhood
+# unexported API: BoundaryCondition, FixedBoundary, PeriodicBoundary, ndims, size, pdf,
+#                 partitionfunc
 
 # D = Dimensions, B = BoundaryCondition
 mutable struct IsingModel{D, B}
@@ -12,9 +16,13 @@ mutable struct IsingModel{D, B}
 
     IsingModel{D, B}(sz::Dims{D}; coupling, invtemp) where {D, B} =
         new(sz, coupling, invtemp, nothing)
-    IsingModel{D, B}(sz::Int...; coupling, invtemp) where {D, B} =
-        new(sz, coupling, invtemp, nothing)
 end
+IsingModel{D, B}(sz::Int...; coupling, invtemp) where {D, B} =
+    IsingModel{D, B}(sz; coupling=coupling, invtemp=invtemp)
+IsingModel(B::Type, sz::Dims; coupling, invtemp) =
+    IsingModel{length(sz), B}(sz; coupling=coupling, invtemp=invtemp)
+IsingModel(B::Type, sz::Int...; coupling, invtemp) =
+    IsingModel(B, sz; coupling=coupling, invtemp=invtemp)
 boundarycond(::Type{<:IsingModel{<:Any, B}}) where B = B
 boundarycond(m::IsingModel) = boundarycond(typeof(m))
 
@@ -74,7 +82,7 @@ hamiltonian(m::IsingModel, x) =
     )
 ## We get a 2 since we have to consider the contribution of the site that flipped and its
 ## neighbors' contributions
-hamildiff(m::MetropolisIsing, ixs) = hamildiff(m.model, m.world, xs)
+hamildiff(m::MetropolisIsing, ixs) = hamildiff(m.model, m.world, ixs)
 hamildiff(m::IsingModel, x, ixs) =
     -2*m.coupling*(
         sum(ixs) do i; sum(neighborhood(m, x, i)) do n
@@ -147,10 +155,10 @@ end
 Sampling.currentsample(m::MetropolisIsing) = m.world
 Sampling.skip(m::MetropolisIsing) = m.skip
 
-Sampling.log_relprob(m::MetropolisIsing, x) = -m.invtemp*hamiltonian(m, x)
+Sampling.log_relprob(m::MetropolisIsing, x) = -m.model.invtemp*hamiltonian(m.model, x)
 Sampling.log_trans_prob(m::MetropolisIsing, y, x) = 0
 
-Sampling.log_probdiff(m::MetropolisIsing, (ixs, _)) = -m.invtemp*hamildiff(m, ixs)
+Sampling.log_probdiff(m::MetropolisIsing, (ixs, _)) = -m.model.invtemp*hamildiff(m, ixs)
 Sampling.log_trans_probdiff(m::MetropolisIsing, dx) = 0
 
 Sampling.stepto!(m::MetropolisIsing, y) = (m.world .= y; nothing)

@@ -2,9 +2,10 @@ module IsingBoltzmannBench
 using IsingBoltzmann
 using Plots, StatsPlots
 using Random, Statistics
+using Base.Threads: @threads
 
-kldiv(states, target::Function, data_hist) =
-    kldiv(states, target, data_hist, sum(values(data_hist)))
+kldiv(target::Function, data_hist) =
+    kldiv(target, data_hist, sum(values(data_hist)))
 function kldiv(target::Function, data_hist, nsamples)
     sum(keys(data_hist)) do state
         p = target(state)
@@ -13,119 +14,134 @@ function kldiv(target::Function, data_hist, nsamples)
     end
 end
 
-hist(sampler, n) = hist(Random.GLOBAL_RNG, sampler, n)
-function hist(rng, sampler, n)
+randhist(x, n) = randhist(Random.GLOBAL_RNG, x, n)
+randhist(rng, x, n) = randhist(rng, Random.Sampler(rng, x), n)
+function randhist(rng, sampler::Random.Sampler, n)
     counts = Dict{Random.gentype(sampler), Int}()
 
     for _ = 1:n
         sample = rand(rng, sampler)
-
         counts[sample] = get(counts, sample, 0) + 1
     end
 
     counts
 end
+function hist(xs)
+    counts = Dict{eltype(xs), Int}()
 
-SEED = 1830375382140242722
+    for x in xs
+        counts[x] = get(counts, x, 0) + 1
+    end
+
+    counts
+end
+
+histmean(h) = histmean(identity, h)
+histmean(f, h) = sum(h[k]*f(k) for k in keys(h)) / sum(values(h))
+
+SEED = 6473312523088092072
+
 max_burn = 10^7
-max_skip = 2*10^3
+max_skip = 10^5
 max_samples = 10^6
 
-n_burn_samples = 10^5
+n_burn_samples = 10^3
 n_autocorr_samples = 10^3
-n_accept_prob_samples = 10^3
+n_accept_prob_samples = 10^2
 
 burn_sample_interval = 2*10^5
-skip_sample_interval = 5
+skip_sample_interval = 10^4
 sample_log_interval = 1
 
 N = 6
 
-function bench_metroising(skip)
-    Plots.gr()
-    Plots.default(legend=false)
-
-    m = MetropolisIsing(spinrand(N), 1.0, 0.4, 1, skip)
-
-    exact_energy = sum(hamiltonian(m, σ)*Ising.pdf(m, σ) for σ in bitstrings(N))
+function burnin(f, name, filename, rng, metro)
+    @info "Performing burn-in test on \"$name\"" name max_burn burn_sample_interval n_burn_samples
     
-    kldivs = Vector{Float64}(undef, div(max_burn, burn_sample_interval)+1)
-    energy_rel_diffs = Vector{Float64}(undef, div(max_burn, burn_sample_interval)+1)
-    rng = MersenneTwister(SEED)
-    @info "Performing burn-in" max_burn burn_sample_interval n_burn_samples
+    vals = Vector{Float64}(undef, div(max_burn, burn_sample_interval)+1)
     for i = 0:max_burn
         if i % burn_sample_interval == 0
             k = div(i, burn_sample_interval) + 1
-            counts = hist(copy(rng), m, n_burn_samples)
-            kldivs[k] = kldiv(σ -> Ising.pdf(m, σ), counts, n_burn_samples)
-            energy = n_burn_samples\sum(counts[σ]*hamiltonian(m, σ) for σ in keys(counts))
-            energy_rel_diffs[k] = (energy - exact_energy)/abs(exact_energy)
+            counts = randhist(copy(rng), metro, n_burn_samples)
+            vals[k] = f(counts)
         end
     
-        rand(rng, m)
+        rand(rng, metro)
     end
     xs = 0:burn_sample_interval:max_burn
     plot(
-        xs, kldivs,
+        xs, vals,
         markershape=:auto,
-        xlabel="Burn-in", ylabel="KL Div (nsamples=$n_burn_samples)"
+        xlabel="Burn-in", ylabel="$name (nsamples=$n_burn_samples)"
     )
-    savefig("metroising_kldiv.pdf")
-    plot(
-        xs, energy_rel_diffs,
-        markershape=:auto,
-        xlabel="Burn-in", ylabel="Energy rel. err. (nsamples=$n_burn_samples)"
-    )
-    savefig("metroising_energy.pdf")
-    
-    avgmag(ss) = mean(2*s - 1 for s in ss)
-    avgmag_autocorrs = Vector{Float64}(undef, div(max_skip, skip_sample_interval))
-    @info "Calculating avgmag autocorrelation" max_skip skip_sample_interval n_autocorr_samples
-    for (k, skip) = enumerate(1:skip_sample_interval:max_skip)
-        samples = rand(copy(rng), n_autocorr_samples+skip)
-    
+    savefig(filename)
+
+    nothing
+end
+
+function autocorr(f, name, filename, rng, metro)
+    @info "Calculating $name autocorrelation" name max_skip skip_sample_interval n_autocorr_samples
+
+    autocorrs = Vector{Float64}(undef, div(max_skip, skip_sample_interval))
+    skip_range = 1:skip_sample_interval:max_skip
+    samples = rand(rng, metro, n_autocorr_samples+last(skip_range))
+    @threads for k = 1:length(skip_range)
+        skip = skip_range[k]
+
         corr = 0.0; avg_sq = 0.0; sq_avg = 0.0
         for n = 1:n_autocorr_samples
-            corr += mean(avgmag, samples[1:n])*mean(avgmag, samples[1:n+skip])
-            sq_avg += mean(avgmag, samples[1:n])
-            avg_sq += mean(ss -> avgmag(ss)^2, samples[1:n])
+            v = @view samples[1:n]
+            v_skip = @view samples[1:n+skip]
+
+            corr += mean(f, v)*mean(f, v_skip)
+            sq_avg += mean(f, v)
+            avg_sq += mean(ss -> f(ss)^2, v)
         end
         corr /= n_autocorr_samples
         sq_avg /= n_autocorr_samples
         sq_avg ^= 2
         avg_sq /= n_autocorr_samples
     
-        avgmag_autocorrs[k] = (corr - sq_avg)/(avg_sq - sq_avg)
+        autocorrs[k] = (corr - sq_avg)/(avg_sq - sq_avg)
     end
-    xs = 1:skip_sample_interval:max_skip
     plot(
-        xs, avgmag_autocorrs,
-        xlabel="Skip", ylabel="Average Magnetization Autocorrelation (nsamples=$n_autocorr_samples)"
-    ), StatsPlots
-    savefig("metroising_avgmag_autocorr.pdf")
+        skip_range, autocorrs,
+        markershape=:auto,
+        xlabel="Skip", ylabel="Autocorrelation",
+        title="$name Autocorrelation (nsamples=$n_autocorr_samples)"
+    )
+    savefig(filename)
 
-    @info "Calculating acceptance probabilties" n_accept_prob_samples
+    nothing
+end
+
+function accept_probs(filename, rng, metro)
+    @info "Sampling acceptance probabilities" n_accept_prob_samples
+
     accept_probs = Vector{Float64}(undef, n_accept_prob_samples-1)
-    rng2 = copy(rng)
-    prev_sample = rand(rng2, m)
+    prev_sample = currentsample(metro)
     for i = 1:n_accept_prob_samples-1
-        cur_sample = rand(rng2, m)
-        accept_probs[i] = min(1, exp(log_accept_prob(m, cur_sample, prev_sample)))
+        cur_sample = Sampling.step(rng, metro)
+        accept_probs[i] = min(1, exp(log_accept_prob(metro, cur_sample, prev_sample)))
         prev_sample = cur_sample
     end
     bar(
         1:n_accept_prob_samples-1, accept_probs,
-        xlabel="Sample", ylabel="Acceptance Probability"
+        xlabel="Sample", ylabel="Acceptance Probability", title="Mean = $(mean(accept_probs))"
     )
     savefig("metroising_accept_prob.pdf")
-   
-    @info "Creating histograms" max_samples sample_log_interval
+end
+
+function histogram_comp(exact_pdf, filename, rng, metro)
+    @info "Creating comparison histograms" max_samples sample_log_interval
+
+    sample_range = 10 .^ (1:sample_log_interval:ceil(Int, log10(max_samples)))
     hists = []
-    for i = 1:sample_log_interval:log10(max_samples)
-        n = 10^i
-        counts = hist(copy(rng), m, n)
+    samples = rand(rng, metro, last(sample_range))
+    for n in sample_range
+        counts = hist(@view samples[1:n])
         
-        pdf_exact = [Ising.pdf(m, σ) for σ in bitstrings(N)]
+        pdf_exact = [exact_pdf(σ) for σ in bitstrings(N)]
         pdf_approx = [get(counts, σ, 0)/n for σ in bitstrings(N)]
         push!(
             hists,
@@ -137,7 +153,34 @@ function bench_metroising(skip)
     end
     sz = Plots.default(:size)
     plot(layout=(length(hists), 1), hists..., size=(sz[1], length(hists)*sz[2]))
-    savefig("metroising_hist.pdf")
+    savefig(filename)
+end
+
+function bench_metroising(skip)
+    rng = MersenneTwister(SEED)
+
+    Plots.gr()
+    Plots.default(legend=false)
+
+    m = IsingModel(Ising.FixedBoundary, N; coupling=1.0, invtemp=0.4)
+    metro = MetropolisIsing(m, spinrand(rng, N); skip=skip)
+
+#    burnin("KL Div", "metroising_kldiv.pdf", copy(rng), metro) do σ_hist
+#        kldiv(Ising.pdf(m), σ_hist)
+#    end
+#    exact_energy = sum(hamiltonian(m, σ)*Ising.pdf(m, σ) for σ in bitstrings(N))
+#    burnin("Energy", "metroising_energy.pdf", copy(rng), metro) do σ_hist
+#        energy = histmean(σ -> hamiltonian(m, σ), σ_hist)
+#        (energy - exact_energy)/abs(exact_energy)
+#    end
+
+    autocorr("Average Magnetization", "metroising_avgmag_autocorr.pdf", copy(rng), metro) do σ
+        mean(2*s - 1 for s in σ)
+    end
+
+    accept_probs("metroising_accept_prob.pdf", copy(rng), metro)
+
+#    histogram_comp(Ising.pdf(m), "metroising_hist.pdf", copy(rng), metro)
 
     nothing
 end

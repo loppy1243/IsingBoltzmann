@@ -1,0 +1,23 @@
+\documentclass[12pt]{article}
+
+\usepackage[letterpaper,margin=1in]{geometry}
+\usepackage{amsmath,amsfonts}
+
+\input{/home/loppy/latex/lib/util.tex}\FixLeftRight
+\input{/home/loppy/latex/lib/deriv.tex}
+\input{/home/loppy/latex/lib/vector.tex}
+\input{/home/loppy/latex/lib/sets.tex}
+\input{/home/loppy/latex/lib/brackets.tex}
+
+\newcommand\KL{\mathbb{KL}}
+\newcommand\trans{^{\mathrm{T}}}
+
+\DeclareMathOperator\sigm{sigm}
+
+\begin{document}
+\section{KL Divergence Gradient}
+    \input{kldiv_grad.tex}
+
+\bibliography{/home/loppy/bib/isingboltzmann.bib}{}
+\bibliographystyle{plain}
+\end{document}
