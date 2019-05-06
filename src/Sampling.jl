@@ -44,13 +44,12 @@ abstract type StepType end
 Default step type for `MetropolisHastings`. Each Metropolis step generates a completely new
 state. Methods to implement:
 
-    step(::AbstractRNG, ::MetropolisHastings)
+    step(::Random.AbstractRNG, ::MetropolisHastings)
     stepto!(::MetropolisHastings, x)
     log_relprob(::MetropolisHastings, x)
     log_trans_prob(::MetropolisHastings, y, x)
 
     # Optional
-    log_relprob(::MetropolisHastings, y, x)
     skip(::MetropolisHastings)
 """
 struct Default <: StepType end
@@ -60,19 +59,23 @@ struct Default <: StepType end
 Reversible step type for `MetropolisHastings`. Implement this if Metropolis steps are
 reversible and can be performed as a small "delta" between states. Methods to implement:
 
-    stepforward!(::AbstractRNG, ::MetropolisHastings)
+    stepforward!(::Random.AbstractRNG, ::MetropolisHastings)
     stepback!(::MetropolisHastings, dx)
     log_probdiff(::MetropolisHastings, dx)
     log_trans_probdiff(::MetropolisHastings, dx)
 
     # Optional
     skip(::MetropolisHastings)
+
+    # Needed for log_accept_prob()
+    log_relprob(::MetropolisHastings, x)
+    log_trans_prob(::MetropolisHastings, y, x)
 """
 struct Reversible <: StepType end
 StepType(::Type{<:MetropolisHastings}) = Default()
 StepType(m::MetropolisHastings) = StepType(typeof(m))
 
-step(rng::AbstractRNG, m::MetropolisHastings) = _step(rng, m, StepType(m))
+step(rng::Random.AbstractRNG, m::MetropolisHastings) = _step(rng, m, StepType(m))
 function _step(rng, m::MetropolisHastings, ::Reversible)
     y, dx = stepforward!(rng, m)
     y_copy = copy(y)
@@ -85,11 +88,9 @@ step(m::MetropolisHastings) = step(Random.GLOBAL_RNG, m)
 stepforward!(m::MetropolisHastings) = stepforward!(Random.GLOBAL_RNG, m)
 
 log_accept_prob(m::MetropolisHastings, y, x) =
-    log_relprob(m, y, x) + log_trans_prob(m, x, y) - log_trans_prob(m, y, x)
+    log_relprob(m, y) - log_relprob(m, x) + log_trans_prob(m, x, y) - log_trans_prob(m, y, x)
 
-log_relprob(::MetropolisHastings, y, x) = log_relprob(m, y) - log_relprob(m, x)
-
-Random.rand(rng::AbstractRNG, m::Random.SamplerTrivial{<:MetropolisHastings}; copy=true) =
+Random.rand(rng::Random.AbstractRNG, m::Random.SamplerTrivial{<:MetropolisHastings}; copy=true) =
     _rand(rng, m[], StepType(m), copy)
 function _rand(rng, m::MetropolisHastings, ::Reversible, copy)
     for _ = 0:skip(m)
