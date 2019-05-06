@@ -19,8 +19,9 @@ end
 #   log_trans_prob(m, currentstate(m)-dx, currentstate(m)) #=
 #   #= - log_trans_prob(m, currenstate(m), currentstate(m)-dx)
 
-abstract type MetropolisHastings{T} <: Random.Sampler{T} end
 
+abstract type MetropolisHastings{T} end
+Random.gentype(::Type{MetropolisHastings{T}}) where T = T
 abstract type StepType end
 struct Default <: StepType end
 struct Reversible <: StepType end
@@ -41,8 +42,8 @@ log_accept_prob(m::MetropolisHastings, y, x) =
 
 log_relprob(::MetropolisHastings, y, x) = log_relprob(m, y) - log_relprob(m, x)
 
-Random.rand(rng::AbstractRNG, m::MetropolisHastings; copy=true) =
-    _rand(rng, m, StepType(m), copy)
+Random.rand(rng::AbstractRNG, m::Random.SamplerTrivial{<:MetropolisHastings}; copy=true) =
+    _rand(rng, m[], StepType(m), copy)
 function _rand(rng, m::MetropolisHastings, ::Reversible, copy)
     for _ = 0:skip(m)
         dx = stepforward!(rng, m)
