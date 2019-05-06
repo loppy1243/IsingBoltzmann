@@ -3,21 +3,21 @@ using Random
 export MetropolisHastings,
        currentsample,
        step, stepto!, stepforward!, stepback!,
-       logrelprob, logprobdiff, logtprob, logtprobdiff,
+       log_relprob, log_probdiff, log_trans_prob, log_trans_probdiff,
        log_accept_prob
 
 ## Define functions we don't define here so that they can be specialized
-for sym in (:currentsample, :stepto!, :stepforward!, :stepback!, :logrelprob, :logprobdiff,
-            :logtprob, :logtprobdiff)
+for sym in (:currentsample, :stepto!, :stepback!, :log_probdiff, :log_trans_prob,
+            :log_trans_probdiff)
     @eval $sym() = throw(MethodError($sym, ()))
 end
 
-### Transition probability of x given y
-# logtprob(m, x, y)
+### Transition probability of y given x
+# log_trans_prob(m, y, x)
 ###
-# logtprobdiff(m, dx) =
-#   logtprob(m, currentstate(m)-dx, currentstate(m)) #=
-#   #= - logtprob(m, currenstate(m), currentstate(m)-dx)
+# log_trans_probdiff(m, dx) =
+#   log_trans_prob(m, currentstate(m)-dx, currentstate(m)) #=
+#   #= - log_trans_prob(m, currenstate(m), currentstate(m)-dx)
 
 abstract type MetropolisHastings{T} <: Random.Sampler{T} end
 
@@ -37,40 +37,35 @@ function _step(m::MetropolisHastings, ::Reversible, rng)
 end
 
 log_accept_prob(m::MetropolisHastings, y, x) =
-    logrelprob(m, y) - logrelprob(m, x) + logtprob(m, x, y) - logtprob(m, y, x)
+    log_relprob(m, y, x) + log_trans_prob(m, x, y) - log_trans_prob(m, y, x)
+
+log_relprob(::MetropolisHastings, y, x) = log_relprob(m, y) - log_relprob(m, x)
 
 Random.rand(rng::AbstractRNG, m::MetropolisHastings; copy=true) =
     _rand(rng, m, StepType(m), copy)
 function _rand(rng, m::MetropolisHastings, ::Reversible, copy)
-    y, dx = stepforward!(m, rng=rng)
-    p = logprobdiff(m, dx) + logtprobdiff(m, dx)
+    for _ = 0:skip(m)
+        dx = stepforward!(rng, m)
+        p = log_probdiff(m, dx) + log_trans_probdiff(m, dx)
 
-    local ret
-    for _ = 1:skip(m)+1
-        ret = if p >= 0 || log(rand(rng)) <= p
-            y
-        else
+        if !(p >= 0 || log(rand(rng)) <= p)
             stepback!(m, dx)
-            m.world
         end
     end
-    copy ? Base.copy(ret) : ret
+    copy ? Base.copy(currentsample(m)) : currentsample(m)
 end
 function _rand(rng, m::MetropolisHastings, ::StepType, copy)
-    x = currentsample(m)
-    y = step(m, rng=rng)
-    p = log_accept_prob(m, y, x)
+    for _ = 0:skip(m)
+        x = currentsample(m)
+        y = step(rng, m)
+        p = log_accept_prob(m, y, x)
 
-    local ret
-    for _ = 1:skip(m)+1
-        ret = if p >= 0 || log(rand(rng)) <= p
+        if p >= 0 || log(rand(rng)) <= p
             stepto!(m, y)
-            y
         else
-            x
-        end
     end
-    copy ? Base.copy(ret) : ret
+
+    copy ? Base.copy(currentsample(m)) : currentsample(m)
 end
 
 end # module Sampling
