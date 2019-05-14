@@ -8,11 +8,47 @@ using Reexport: @reexport
 using Printf: @sprintf
 export bitstrings
 
-cartesian_prod(itr, n) = Iterators.product(fill(itr, n)...)
+macro default_first_arg(func_def)
+    @assert func_def isa Expr
+    @assert func_def.head === :function || func_def.head === :(=) 
+                                        
+    call_expr = if func_def.args[1].head === :where
+        func_def.args[1].args[1]
+    else
+        @assert func_def.args[1].head === :call
+        func_def.args[1]
+    end
+    idx = call_expr.args[2] isa Expr && call_expr.args[2].head === :parameters ? 3 : 2
+    first_param = call_expr.args[idx]
+    @assert first_param isa Expr && first_param.head === :kw
+    call_expr.args[idx] = first_param.args[1]
+
+    func_def_default = deepcopy(func_def)
+    call_expr = if func_def.args[1].head === :where
+        func_def_default.args[1].args[1]
+    else
+        func_def_default.args[1]
+    end
+    deleteat!(call_expr.args, idx)
+
+    name(s::Symbol) = s
+    name(s::Expr) = name(s.args[1])
+    func_def_default.args[2] = quote
+        $(name(first_param)) = $(first_param.args[2])
+        $(func_def_default.args[2].args...)
+    end
+
+    quote
+        $(esc(func_def))
+        $(esc(func_def_default))
+    end
+end
+
+cartesian_pow(itr, n) = Iterators.product(ntuple(_ -> itr, n)...)
 
 struct BitStringIter; nbits::Int end
 function Base.iterate(iter::BitStringIter)
-    st_iter = cartesian_prod((false, true), iter.nbits)
+    st_iter = cartesian_pow((false, true), iter.nbits)
     x = iterate(st_iter); isnothing(x) && return nothing
     val, st_st = x
 
@@ -31,7 +67,7 @@ bitstrings(n) = BitStringIter(n)
 Base.eltype(::Type{BitStringIter}) = BitVector
 Base.length(iter::BitStringIter) = 2^iter.nbits
 
-include("Sampling.jl");       @reexport using .Sampling
+include("MetropolisHastings.jl");       @reexport using .MetropolisHastings
 include("PeriodicArrays.jl")
 include("Spins.jl");          @reexport using .Spins
 include("Ising.jl");          @reexport using .Ising
@@ -56,7 +92,7 @@ function main1D()
     seed = Random.seed!().seed
 
     m = IsingModel(Ising.FixedBoundary, N; coupling=1.0, invtemp=0.4)
-    metro = MetropolisIsing(m, spinrand(N))
+    metro = MetropolisIsingSampler(m; init=spinrand)
     ising_samples = rand(metro, samplesize)
     ising_batches = batch(ising_samples, batchsize)
 

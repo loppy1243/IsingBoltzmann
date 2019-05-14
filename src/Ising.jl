@@ -1,11 +1,10 @@
 module Ising
 import Random
-using ..Sampling, ..Spins, ..PeriodicArrays
-using ..IsingBoltzmann: cartesian_prod
-export IsingModel, MetropolisIsing, AbstractSpinGrid, boundarycond, worldtype,
-       hamiltonian, partitionfunc, neighborhood
-# unexported API: BoundaryCondition, FixedBoundary, PeriodicBoundary, ndims, size, pdf,
-#                 partitionfunc
+using ..MetropolisHastings, ..Spins, ..PeriodicArrays
+using ..IsingBoltzmann: @default_first_arg, bitstrings
+export IsingModel, MetropolisIsingSampler, AbstractSpinGrid, boundarycond, worldtype,
+       hamiltonian, partitionfunc, neighborhood, spinstates
+# unexported API: BoundaryCondition, FixedBoundary, PeriodicBoundary, ndims, size, pdf
 
 # D = Dimensions, B = BoundaryCondition
 mutable struct IsingModel{D, B}
@@ -31,7 +30,10 @@ struct FixedBoundary <: BoundaryCondition end
 struct PeriodicBoundary <: BoundaryCondition end
 
 const AbstractSpinGrid{D} = AbstractArray{Spin, D}
-struct MetropolisIsing{D, I<:IsingModel{D}, W<:AbstractSpinGrid{D}} <: MetropolisHastings{W}
+struct MetropolisIsingSampler{D, I<:IsingModel{D}, W<:AbstractSpinGrid{D}, R} #=
+       =# <: MetropolisHastingsSampler{W}
+    rng::R
+
     model::I
     world::W
 
@@ -39,41 +41,67 @@ struct MetropolisIsing{D, I<:IsingModel{D}, W<:AbstractSpinGrid{D}} <: Metropoli
     stepsize::Int
     skip::Int
 
-    function MetropolisIsing{D, I, W}(model::I, world::W; stepsize=1, skip=0) where
-                            {D, I<:IsingModel{D}, W<:AbstractSpinGrid{D}}
+    function MetropolisIsingSampler{D, I, W, R}(
+            rng::R, model::I, world::W; stepsize=1, skip=0
+    ) where {D, I<:IsingModel{D}, W<:AbstractSpinGrid{D}, R}
         @assert model.size == Base.size(world)
 
-        new(model, world, stepsize, skip)
+        new(rng, model, world, stepsize, skip)
     end
 end
-MetropolisIsing(model::IsingModel{D}, world::AbstractSpinGrid{D}; stepsize=1, skip=0) where D =
-    MetropolisIsing{D, typeof(model), typeof(world)}(model, world; stepsize=stepsize, skip=skip)
-Sampling.StepType(::Type{<:MetropolisIsing}) = Sampling.Reversible()
+const MIsingSampler = MetropolisIsingSampler
+@default_first_arg function MIsingSampler(
+        rng=Random.GLOBAL_RNG, model::IsingModel{D}, world::AbstractSpinGrid{D}
+        ; stepsize=1, skip=0
+) where D
+    MIsingSampler{D, typeof(model), typeof(world), typeof(rng)}(
+        rng, model, world; stepsize=stepsize, skip=skip
+    )
+end
+MetropolisHastings.StepType(::Type{<:MIsingSampler}) = MetropolisHastings.Reversible()
 
-function Base.show(io::IO, mime::MIME"text/plain", m::MetropolisIsing)
+@default_first_arg function MIsingSampler(
+        rng=Random.GLOBAL_RNG, model::IsingModel
+        ; init=falses, kws...
+)
+    world = init(Ising.size(model))
+    MIsingSampler{Ising.ndims(model), typeof(model), typeof(world), typeof(rng)}(
+        rng, model, world; kws...
+    )
+end
+@default_first_arg MetropolisHastingsSampler(rng=Random.GLOBAL_RNG, model::IsingModel) =
+    MIsingSampler(rng, model)
+
+function Base.show(io::IO, mime::MIME"text/plain", m::MIsingSampler)
     println(io,
-        "MetropolisIsing(..., IsingModel($(m.model.coupling), $(m.model.invtemp)), ",
+        "MetropolisIsingSampler(..., IsingModel($(m.model.coupling), $(m.model.invtemp)), ",
         "$(m.stepsize), $(m.skip))"
     )
     show(io, mime, m.world)
 end
 
-worldtype(::Type{<:MetropolisIsing{<:Any, <:Any, W}}) where W = W
-worldtype(m::MetropolisIsing) = worldtype(typeof(m))
+worldtype(::Type{<:MIsingSampler{<:Any, <:Any, W}}) where W = W
+worldtype(m::MIsingSampler) = worldtype(typeof(m))
 
 ## Define on Base.ndims?
 ndims(::Type{<:IsingModel{D}}) where D = D
-ndims(::Type{<:MetropolisIsing{D}}) where D = D
+ndims(::Type{<:MIsingSampler{D}}) where D = D
 ndims(d) = ndims(typeof(d))
 ndims(T::Type) = throw(MethodError(ndims, T))
 
 ## Define on Base.size?
 size(m::IsingModel) = m.size
-size(m::MetropolisIsing) = size(m.model)
+size(m::MIsingSampler) = size(m.model)
 
 nspins(m) = prod(Ising.size(m))
 
-hamiltonian(m::MetropolisIsing) = hamiltonian(m.model, m.world)
+spinstates(m) = spinstates(BitArray{Ising.ndims(m)}, m)
+spinstates(::Type{BitArray{D}}, m::IsingModel{D}) where D =
+    (reshape(bits, Ising.size(m)) for bits in bitstrings(nspins(m)))
+spinstates(T::Type, m) =
+    (convert(T, state) for state in spinstates(m))
+
+hamiltonian(m::MIsingSampler) = hamiltonian(m.model, m.world)
 hamiltonian(m::IsingModel, x) =
     -m.coupling*(
         sum(eachindex(x)) do i; sum(neighborhood(m, x, i)) do n
@@ -82,7 +110,7 @@ hamiltonian(m::IsingModel, x) =
     )
 ## We get a 2 since we have to consider the contribution of the site that flipped and its
 ## neighbors' contributions
-hamildiff(m::MetropolisIsing, ixs) = hamildiff(m.model, m.world, ixs)
+hamildiff(m::MIsingSampler, ixs) = hamildiff(m.model, m.world, ixs)
 hamildiff(m::IsingModel, x, ixs) =
     -2*m.coupling*(
         sum(ixs) do i; sum(neighborhood(m, x, i)) do n
@@ -136,33 +164,17 @@ function _partitionfunc(m)
     sum
 end
 
-#exact_rand(m::MetropolisIsing) = exact_rand(GLOBAL_RNG, m)
-#function exact_rand(rng, m::MetropolisIsing)
-#    spingrid = similar(m.world)
-#    sum = 0.0
-#    for spins in cartesian_prod(SPINS, length(spins))
-#        spingrid[:] .= spins
-#        spingrid == x && break
-#
-#        sum += pdf(m, args)
-#
-#        rand(rng) <= sum && return spingrid
-#    end
-#
-#    world
-#end
+MetropolisHastings.currentsample(m::MIsingSampler) = m.world
+MetropolisHastings.skip(m::MIsingSampler) = m.skip
 
-Sampling.currentsample(m::MetropolisIsing) = m.world
-Sampling.skip(m::MetropolisIsing) = m.skip
+MetropolisHastings.log_relprob(m::MIsingSampler, x) = -m.model.invtemp*hamiltonian(m.model, x)
+MetropolisHastings.log_trans_prob(m::MIsingSampler, y, x) = 0
 
-Sampling.log_relprob(m::MetropolisIsing, x) = -m.model.invtemp*hamiltonian(m.model, x)
-Sampling.log_trans_prob(m::MetropolisIsing, y, x) = 0
+MetropolisHastings.log_probdiff(m::MIsingSampler, (ixs, _)) = -m.model.invtemp*hamildiff(m, ixs)
+MetropolisHastings.log_trans_probdiff(m::MIsingSampler, dx) = 0
 
-Sampling.log_probdiff(m::MetropolisIsing, (ixs, _)) = -m.model.invtemp*hamildiff(m, ixs)
-Sampling.log_trans_probdiff(m::MetropolisIsing, dx) = 0
-
-Sampling.stepto!(m::MetropolisIsing, y) = (m.world .= y; nothing)
-function Sampling.stepforward!(rng::Random.AbstractRNG, m::MetropolisIsing)
+MetropolisHastings.stepto!(m::MIsingSampler, y) = (m.world .= y; nothing)
+function MetropolisHastings.stepforward!(rng::Random.AbstractRNG, m::MIsingSampler)
     ixs = rand(rng, eachindex(m.world), m.stepsize)
     flips = rand(rng, Spin, m.stepsize)
 
@@ -172,7 +184,7 @@ function Sampling.stepforward!(rng::Random.AbstractRNG, m::MetropolisIsing)
 
     (ixs, flips)
 end
-function Sampling.stepback!(m::MetropolisIsing, (ixs, flips))
+function MetropolisHastings.stepback!(m::MIsingSampler, (ixs, flips))
     for i in eachindex(ixs)
         m.world[ixs[i]] = xor(m.world[ixs[i]], flips[i])
     end

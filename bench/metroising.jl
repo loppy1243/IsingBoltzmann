@@ -121,7 +121,7 @@ function accept_probs(filename, rng, metro)
     accept_probs = Vector{Float64}(undef, n_accept_prob_samples-1)
     prev_sample = currentsample(metro)
     for i = 1:n_accept_prob_samples-1
-        cur_sample = Sampling.step(rng, metro)
+        cur_sample = MetropolisHastings.step(rng, metro)
         accept_probs[i] = min(1, exp(log_accept_prob(metro, cur_sample, prev_sample)))
         prev_sample = cur_sample
     end
@@ -163,7 +163,7 @@ function bench_metroising(skip)
     Plots.default(legend=false)
 
     m = IsingModel(Ising.FixedBoundary, N; coupling=1.0, invtemp=0.4)
-    metro = MetropolisIsing(m, spinrand(rng, N); skip=skip)
+    metro = MetropolisIsingSampler(rng, m, init=dims->spinrand(rng, dims); skip=skip)
 
 #    burnin("KL Div", "metroising_kldiv.pdf", copy(rng), metro) do σ_hist
 #        kldiv(Ising.pdf(m), σ_hist)
@@ -174,13 +174,13 @@ function bench_metroising(skip)
 #        (energy - exact_energy)/abs(exact_energy)
 #    end
 
-    autocorr("Average Magnetization", "metroising_avgmag_autocorr.pdf", copy(rng), metro) do σ
-        mean(2*s - 1 for s in σ)
-    end
+#    autocorr("Average Magnetization", "metroising_avgmag_autocorr.pdf", copy(rng), metro) do σ
+#        mean(2*s - 1 for s in σ)
+#    end
 
-    accept_probs("metroising_accept_prob.pdf", copy(rng), metro)
+#    accept_probs("metroising_accept_prob.pdf", copy(rng), metro)
 
-#    histogram_comp(Ising.pdf(m), "metroising_hist.pdf", copy(rng), metro)
+    histogram_comp(Ising.pdf(m), "metroising_hist.pdf", copy(rng), metro)
 
     nothing
 end
