@@ -1,5 +1,6 @@
 Implementation in Julia of a Restricted Boltzmann Machine (RBM) on top of the Ising model
-sampled with the Metropolis algorithm. (Based on the 2016 paper by Torlai and Melko[1].)
+sampled with the Metropolis algorithm. (Based on the 2016 paper by Torlai and
+Melko[[1]](#references).)
 
 # Running
 In a Julia prompt in this directory, run
@@ -35,5 +36,5 @@ I used to have a blurb here about how it doesn't work, but it _does_ work now; f
 posterity, that blurb can be found here: [README.broken.md](README.broken.md)
 
 # References
-[1]: G. Torlai and R. G. Melko. "Learning Thermodynamics with Boltzmann Machines".
-arXiv:1606.02718v1 (2016).
+\[1]: G. Torlai and R. G. Melko. Learning Thermodynamics with Boltzmann Machines".
+[arXiv:1606.02718v1](https://arxiv.org/abs/1606.02718v1) (2016).
