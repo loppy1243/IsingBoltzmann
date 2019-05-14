@@ -1,5 +1,5 @@
 Implementation in Julia of a Restricted Boltzmann Machine (RBM) on top of the Ising model
-sampled with the Metropolis algorithm. (Based on the [2016 paper by Torlai and Melko](1))
+sampled with the Metropolis algorithm. (Based on the 2016 paper by Torlai and Melko[1].)
 
 # Running
 In a Julia prompt in this directory, run
