@@ -83,13 +83,11 @@ function main1D()
     D = 1; N = 6; N_hidden = N;
     nepochs = 1000
     sample_epochs = (10, 500, 1000)
-    # Training with samplesize=10^5 is pretty slow, but doesn't produce better results (though
-    # everything here is running serially, so it could be faster).
-    samplesize = 10^3
+    samplesize = 10^5
     batchsize = 50
 
-    # Put seed here    \/      if so desired.
-    seed = Random.seed!().seed
+    # Put seed  \/ here if so desired.
+    Random.seed!()
 
     m = IsingModel(Ising.FixedBoundary, N; coupling=1.0, invtemp=0.4)
     metro = MetropolisIsingSampler(m; init=spinrand)
@@ -143,7 +141,6 @@ function main1D()
         "KL_approx=$(numfmt(kld_approx)), KL_exact=$(numfmt(kld_exact)), ",
         "ΔKL_approx=$(deltafmt(Δapprox)), ΔKL_exact=$(deltafmt(Δexact))"
     )
-    println("Seed = ", seed)
 
     Plots.gr()
 
