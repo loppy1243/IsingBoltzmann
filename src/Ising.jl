@@ -16,12 +16,10 @@ mutable struct IsingModel{D, B}
     IsingModel{D, B}(sz::Dims{D}; coupling, invtemp) where {D, B} =
         new(sz, coupling, invtemp, nothing)
 end
-IsingModel{D, B}(sz::Int...; coupling, invtemp) where {D, B} =
-    IsingModel{D, B}(sz; coupling=coupling, invtemp=invtemp)
-IsingModel(B::Type, sz::Dims; coupling, invtemp) =
-    IsingModel{length(sz), B}(sz; coupling=coupling, invtemp=invtemp)
-IsingModel(B::Type, sz::Int...; coupling, invtemp) =
-    IsingModel(B, sz; coupling=coupling, invtemp=invtemp)
+IsingModel{D, B}(sz::Int...; kwargs...) where {D, B} = IsingModel{D, B}(sz; kwargs...)
+IsingModel(b, sz::Dims;   kwargs...) = IsingModel{length(sz), typeof(b)}(sz; kwargs...)
+IsingModel(b, sz::Int...; kwargs...) = IsingModel(b, sz; kwargs...)
+
 boundarycond(::Type{<:IsingModel{<:Any, B}}) where B = B
 boundarycond(m::IsingModel) = boundarycond(typeof(m))
 
