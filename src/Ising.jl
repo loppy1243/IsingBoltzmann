@@ -1,7 +1,7 @@
 module Ising
 import Random
 using ..MetropolisHastings, ..Spins, ..PeriodicArrays
-using ..IsingBoltzmann: @default_first_arg, bitstrings
+using ..IsingBoltzmann: bitstrings
 export IsingModel, MetropolisIsingSampler, AbstractSpinGrid, boundarycond, worldtype,
        hamiltonian, partitionfunc, neighborhood, spinstates
 # unexported API: BoundaryCondition, FixedBoundary, PeriodicBoundary, ndims, size, pdf
@@ -30,10 +30,8 @@ struct FixedBoundary <: BoundaryCondition end
 struct PeriodicBoundary <: BoundaryCondition end
 
 const AbstractSpinGrid{D} = AbstractArray{Spin, D}
-struct MetropolisIsingSampler{D, I<:IsingModel{D}, W<:AbstractSpinGrid{D}, R} #=
+struct MetropolisIsingSampler{D, I<:IsingModel{D}, W<:AbstractSpinGrid{D}} #=
        =# <: MetropolisHastingsSampler{W}
-    rng::R
-
     model::I
     world::W
 
@@ -41,36 +39,31 @@ struct MetropolisIsingSampler{D, I<:IsingModel{D}, W<:AbstractSpinGrid{D}, R} #=
     stepsize::Int
     skip::Int
 
-    function MetropolisIsingSampler{D, I, W, R}(
-            rng::R, model::I, world::W; stepsize=1, skip=0
+    function MetropolisIsingSampler{D, I, W}(
+            model::I, world::W; stepsize=1, skip=0
     ) where {D, I<:IsingModel{D}, W<:AbstractSpinGrid{D}, R}
         @assert model.size == Base.size(world)
 
-        new(rng, model, world, stepsize, skip)
+        new(model, world, stepsize, skip)
     end
 end
 const MIsingSampler = MetropolisIsingSampler
-@default_first_arg function MIsingSampler(
-        rng=Random.GLOBAL_RNG, model::IsingModel{D}, world::AbstractSpinGrid{D}
-        ; stepsize=1, skip=0
+function MIsingSampler(
+        model::IsingModel{D}, world::AbstractSpinGrid{D}; stepsize=1, skip=0
 ) where D
-    MIsingSampler{D, typeof(model), typeof(world), typeof(rng)}(
-        rng, model, world; stepsize=stepsize, skip=skip
+    MIsingSampler{D, typeof(model), typeof(world)}(
+        model, world; stepsize=stepsize, skip=skip
     )
 end
 MetropolisHastings.StepType(::Type{<:MIsingSampler}) = MetropolisHastings.Reversible()
 
-@default_first_arg function MIsingSampler(
-        rng=Random.GLOBAL_RNG, model::IsingModel
-        ; init=falses, kws...
-)
+function MIsingSampler(model::IsingModel; init=falses, kws...)
     world = init(Ising.size(model))
-    MIsingSampler{Ising.ndims(model), typeof(model), typeof(world), typeof(rng)}(
-        rng, model, world; kws...
+    MIsingSampler{Ising.ndims(model), typeof(model), typeof(world)}(
+        model, world; kws...
     )
 end
-@default_first_arg MetropolisHastingsSampler(rng=Random.GLOBAL_RNG, model::IsingModel) =
-    MIsingSampler(rng, model)
+MetropolisHastingsSampler(model::IsingModel) = MIsingSampler(model)
 
 function Base.show(io::IO, mime::MIME"text/plain", m::MIsingSampler)
     println(io,
