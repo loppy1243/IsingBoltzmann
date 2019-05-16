@@ -1,11 +1,14 @@
 module RBM
 using Random, Statistics
-using ..IsingBoltzmann: bitstrings
+################################################################################
+## Individual: Internal ########################################################
+using ..IsingBoltzmann: bitstrings, @default_first_arg
+## stdlib ######################################################################
 using LinearAlgebra: mul!
 export RestrictedBoltzmann, energy, partitionfunc, pdf, input_pdf, update!, train!, kldiv
 
 const MFloat64 = Union{Nothing, Float64}
-struct RestrictedBoltzmann{T, V, M, Rng, Rf<:Ref{MFloat64}}
+struct RestrictedBoltzmann{T, V, M, Rf<:Ref{MFloat64}}
     inputsize::Int
     hiddensize::Int
     
@@ -26,21 +29,18 @@ struct RestrictedBoltzmann{T, V, M, Rng, Rf<:Ref{MFloat64}}
     condavg_hidden::Vector{T}
     hiddeninput_prod::Matrix{T}
 
-    rng::Rng
-
     partitionfunc::Rf
 end
 function RestrictedBoltzmann(
         inputbias, hiddenbias, weights;
-        learning_rate, cd_num, rng=Random.GLOBAL_RNG, partitionfunc=nothing
+        learning_rate, cd_num, partitionfunc=nothing
 )
     ref = Ref{MFloat64}(partitionfunc)
-    RestrictedBoltzmann{eltype(inputbias), typeof(inputbias), typeof(weights), typeof(rng), typeof(ref)}(
+    RestrictedBoltzmann{eltype(inputbias), typeof(inputbias), typeof(weights), typeof(ref)}(
         length(inputbias), length(hiddenbias),
         inputbias, hiddenbias, weights, learning_rate, cd_num,
         similar(inputbias), similar(hiddenbias), similar(weights),
         similar(hiddenbias), similar(weights),
-        rng,
         ref
     )
 end
@@ -48,7 +48,6 @@ function RestrictedBoltzmann(
         inputsize, hiddensize;
         init=zeros, inputbias_init=nothing, hiddenbias_init=nothing, weights_init=nothing,
         learning_rate, cd_num,
-        rng=Random.GLOBAL_RNG,
         partitionfunc=nothing
 )
     inputbias = if isnothing(inputbias_init)
@@ -66,12 +65,11 @@ function RestrictedBoltzmann(
 
     ref = Ref{MFloat64}(partitionfunc)
 
-    RestrictedBoltzmann{eltype(inputbias), typeof(inputbias), typeof(weights), typeof(rng), typeof(ref)}(
+    RestrictedBoltzmann{eltype(inputbias), typeof(inputbias), typeof(weights), typeof(ref)}(
         inputsize, hiddensize,
         inputbias, hiddenbias, weights, learning_rate, cd_num,
         similar(inputbias), similar(hiddenbias), similar(weights),
         similar(hiddenbias), similar(weights),
-        rng,
         ref
     )
 end
@@ -108,28 +106,35 @@ function condavg_hidden!(rbm, σ)
     rbm.condavg_hidden .= sigmoid.(rbm.hiddenbias .+ rbm.condavg_hidden)
 end
 
-struct AltGibbs <: Random.Sampler{NTuple{2, BitVector}}
+struct AltGibbsSampler <: Random.Sampler{NTuple{2, BitVector}}
     rbm::RestrictedBoltzmann
     inputs::BitVector
     hiddens::BitVector
 end
-function AltGibbs(rbm, inputs0)
+@default_first_arg(
+function AltGibbsSampler(rng::AbstractRNG=GLOBAL_RNG, rbm, inputs0)
     hiddens = BitVector(undef, rbm.hiddensize)
 
     for k in eachindex(hiddens)
-        hiddens[k] = rand(rbm.rng) <= condprob_hidden1(rbm, k, inputs0)
+        hiddens[k] = rand(rng) <= condprob_hidden1(rbm, k, inputs0)
     end
 
-    AltGibbs(rbm, copy(inputs0), hiddens)
-end
-function altgibbs(rbm, inputs0)
-    ret = AltGibbs(rbm, inputs0)
+    AltGibbsSampler(rbm, copy(inputs0), hiddens)
+end)
+
+"""
+    ag, h = altgibbs([rng=GLOBAL_RNG, ]rbm, inputs0)
+
+Return `ag = AltGibbsSampler(rbm, inputs0)` along with the first sample `h` of
+hidden nodes.
+"""
+function altgibbs end
+@default_first_arg function altgibbs(rng=GLOBAL_RNG, rbm, inputs0)
+    ret = AltGibbsSampler(rng, rbm, inputs0)
     ret, copy(ret.hiddens)
 end
 
-Random.rand(cd::AltGibbs, args...; copy=true, kwargs...) =
-    rand(cd.rbm.rng, cd, args...; copy=copy, kwargs...)
-function Random.rand(rng::AbstractRNG, cd::AltGibbs; copy=true)
+function Random.rand(rng::AbstractRNG, cd::AltGibbsSampler; copy=true)
     for k in eachindex(cd.inputs)
         cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
     end
@@ -171,7 +176,7 @@ end
 
 ## There are two potential ways this should maybe be implemented. See doc/kldiv_grad.tex for
 ## details.
-function kldiv_grad!(rbm, batch)
+@default_first_arg function kldiv_grad!(rng=GLOBAL_RNG, rbm, batch)
     z = zero(eltype(rbm))
     rbm.inputgrad   .= z
     rbm.hiddengrad  .= z
@@ -180,8 +185,8 @@ function kldiv_grad!(rbm, batch)
     L = length(batch)
     for σ in batch
         ## Method 1
-        σh_sampler = AltGibbs(rbm, σ)
-        h2, σ2 = rand(σh_sampler; copy=false)
+        σh_sampler = AltGibbsSampler(rng, rbm, σ)
+        h2, σ2 = rand(rng, σh_sampler; copy=false)
 
         condavg_hidden!(rbm, σ2)
         rbm.inputgrad   .+= σ2
@@ -213,7 +218,7 @@ function kldiv_grad!(rbm, batch)
     rbm.inputgrad, rbm.hiddengrad, rbm.weightsgrad
 end
 
-function update!(rbm, batch)
+@default_first_arg function update!(rng=GLOBAL_RNG, rbm, batch)
     kldiv_grad!(rbm, batch)
 
     rbm.inputbias  .-= rbm.learning_rate.*rbm.inputgrad
@@ -224,7 +229,7 @@ function update!(rbm, batch)
     rbm
 end
 
-function train!(rbm, minibatches; rng=Random.GLOBAL_RNG)
+@default_first_arg function train!(rng=GLOBAL_RNG, rbm, minibatches)
     perm = randperm(rng, size(minibatches, ndims(minibatches)))
     permute!(minibatches, perm)
 
