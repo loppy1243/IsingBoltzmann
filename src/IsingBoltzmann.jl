@@ -2,10 +2,15 @@
 ### These have to be transformed between properly!
 
 module IsingBoltzmann
-using Plots
+## stdlib ######################################################################
 using Random
+## External ####################################################################
+using Plots
+################################################################################
+## Individual ##################################################################
 using Reexport: @reexport
 using Printf: @sprintf
+
 export bitstrings
 
 include("utils.jl")

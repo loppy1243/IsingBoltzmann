@@ -1,6 +1,9 @@
 module Spins
-using Random: bitrand
+## Internal ####################################################################
 using ..IsingBoltzmann: bitstrings
+## stdlib ######################################################################
+using Random: bitrand
+
 export Spin, flipspin, spinups, spindowns, spinrand, spinstrings, SPINS, SPINUP, SPINDN
 
 const Spin = Bool

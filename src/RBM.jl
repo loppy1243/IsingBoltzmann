@@ -1,10 +1,11 @@
 module RBM
+## stdlib ######################################################################
 using Random, Statistics
 ################################################################################
 ## Individual: Internal ########################################################
 using ..IsingBoltzmann: bitstrings, @default_first_arg
-## stdlib ######################################################################
 using LinearAlgebra: mul!
+
 export RestrictedBoltzmann, energy, partitionfunc, pdf, input_pdf, update!, train!, kldiv
 
 const MFloat64 = Union{Nothing, Float64}
@@ -233,7 +234,7 @@ end
     perm = randperm(rng, size(minibatches, ndims(minibatches)))
     permute!(minibatches, perm)
 
-    for (k, b) in minibatches |> enumerate
+    for (k, b) in enumerate(minibatches)
         update!(rbm, b)
     end
 

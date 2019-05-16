@@ -1,7 +1,12 @@
 module Ising
-import Random
+## Internal ####################################################################
 using ..MetropolisHastings, ..Spins, ..PeriodicArrays
+## stdlib ######################################################################
+import Random
+################################################################################
+## Individual: Internal ########################################################
 using ..IsingBoltzmann: bitstrings
+
 export IsingModel, MetropolisIsingSampler, AbstractSpinGrid, boundarycond, worldtype,
        hamiltonian, partitionfunc, neighborhood, spinstates
 # unexported API: BoundaryCondition, FixedBoundary, PeriodicBoundary, ndims, size, pdf
