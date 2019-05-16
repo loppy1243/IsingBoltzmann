@@ -51,9 +51,18 @@ function RestrictedBoltzmann(
         rng=Random.GLOBAL_RNG,
         partitionfunc=nothing
 )
-    inputbias  = isnothing(inputbias_init)  ? init(inputsize)             : inputbias_init(inputsize)
-    hiddenbias = isnothing(hiddenbias_init) ? init(hiddensize)            : hiddenbias_init(hiddensize)
-    weights    = isnothing(weights_init)    ? init(hiddensize, inputsize) : weights_init(hiddensize, inputsize)
+    inputbias = if isnothing(inputbias_init)
+        init((inputsize,)) else inputbias_init((inputsize,))
+    end
+    inputbias = if isnothing(inputbias_init)
+        init((inputsize,)) else inputbias_init((inputsize,))
+    end
+    hiddenbias = if isnothing(hiddenbias_init)
+        init((hiddensize,)) else hiddenbias_init((hiddensize,))
+    end
+    weights = if isnothing(weights_init)
+        init((hiddensize, inputsize)) else weights_init((hiddensize, inputsize))
+    end
 
     ref = Ref{MFloat64}(partitionfunc)
 
