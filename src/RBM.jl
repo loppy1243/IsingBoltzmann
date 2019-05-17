@@ -5,6 +5,8 @@ using Random, Statistics
 ## Individual: Internal ########################################################
 using ..IsingBoltzmann: bitstrings, @default_first_arg
 using LinearAlgebra: mul!
+## External ####################################################################
+using Random: GLOBAL_RNG
 
 export RestrictedBoltzmann, energy, partitionfunc, pdf, input_pdf, update!, train!, kldiv
 
@@ -235,7 +237,7 @@ end
     permute!(minibatches, perm)
 
     for (k, b) in enumerate(minibatches)
-        update!(rbm, b)
+        update!(rng, rbm, b)
     end
 
     perm
