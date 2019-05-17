@@ -60,5 +60,5 @@ Base.length(iter::BitStringIter) = 2^iter.nbits
 function batch(x, batchsize)
     L = size(x, ndims(x))
     nbatches = div(L - 1, batchsize) + 1
-    [[x[i] for i = k*batchsize+1:min(L, (k+1)*batchsize)] for k=0:nbatches-1]
+    [view(x, k*batchsize+1:min(L, (k+1)*batchsize)) for k=0:nbatches-1]
 end
