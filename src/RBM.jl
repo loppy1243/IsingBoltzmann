@@ -105,11 +105,15 @@ function condavg_hidden!(rbm, σ)
     rbm.condavg_hidden .= sigmoid.(rbm.hiddenbias .+ rbm.condavg_hidden)
 end
 
-struct AltGibbsSampler <: Random.Sampler{NTuple{2, BitVector}}
-    rbm::RestrictedBoltzmann
+struct AltGibbsSampler{Rbm<:RestrictedBoltzmann} <: Random.Sampler{NTuple{2, BitVector}}
+    rbm::Rbm
     inputs::BitVector
     hiddens::BitVector
+
+    AltGibbsSampler(rbm, inputs, hiddens) = new{typeof(rbm)}(rbm, inputs, hiddens)
 end
+AltGibbsSampler(init::UndefInitializer, rbm) =
+    AltGibbsSampler(rbm, BitVector(init, rbm.inputsize), BitVector(init, rbm.hiddensize))
 @default_first_arg(
 function AltGibbsSampler(rng::AbstractRNG=GLOBAL_RNG, rbm, inputs0)
     hiddens = BitVector(undef, rbm.hiddensize)
@@ -122,15 +126,29 @@ function AltGibbsSampler(rng::AbstractRNG=GLOBAL_RNG, rbm, inputs0)
 end)
 
 """
-    ag, h = altgibbs([rng=GLOBAL_RNG, ]rbm, inputs0)
+    ag, h = altgibbs([rng=GLOBAL_RNG, ]rbm, inputs0; copy=true)
 
-Return `ag = AltGibbsSampler(rbm, inputs0)` along with the first sample `h` of
-hidden nodes.
+Returns `ag = AltGibbsSampler(rbm, inputs0)` along with the first sample `h` of
+hidden nodes. If `copy` is `false`, then `h` is allowed to alias with internal
+state of `ag`.
 """
 function altgibbs end
-@default_first_arg function altgibbs(rng=GLOBAL_RNG, rbm, inputs0)
+@default_first_arg function altgibbs(
+        rng=GLOBAL_RNG, rbm::RestrictedBoltzmann, inputs0; copy=true
+)
     ret = AltGibbsSampler(rng, rbm, inputs0)
-    ret, copy(ret.hiddens)
+    ret, copy ? Base.copy(ret.hiddens) : ret.hiddens
+end
+
+"""
+    h = altgibbs!([rng=GLOBAL_RNG, ]ag::AltGibbsSampler, inputs0; copy=true)
+
+Same as `altgibbs()`, but instead of constructing a new `AltGibbsSampler`, `ag`
+is modified in-place.
+"""
+@default_first_arg function altgibbs!(rng=GLOBAL_RNG, ag::AltGibbsSampler, inputs0; copy=true)
+    AltGibbsSampler!(rng, ag, inputs0)
+    copy ? Base.copy(ag.hiddens) : ag.hiddens
 end
 
 function Random.rand(rng::AbstractRNG, cd::AltGibbsSampler; copy=true)
@@ -142,6 +160,16 @@ function Random.rand(rng::AbstractRNG, cd::AltGibbsSampler; copy=true)
     end
 
     copy ? (Base.copy(cd.hiddens), Base.copy(cd.inputs)) : (cd.hiddens, cd.inputs)
+end
+function Random.rand!(rng::AbstractRNG, (inputs, hiddens), cd::AltGibbsSampler)
+    for k in eachindex(cd.inputs)
+        inputs[k] = cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
+    end
+    for k in eachindex(cd.hiddens)
+        hiddens[k] = cd.hiddens[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
+    end
+
+    (inputs, hiddens)
 end
 
 function entropy(batch)
