@@ -10,8 +10,9 @@ using Random: GLOBAL_RNG
 
 export RestrictedBoltzmann, energy, partitionfunc, pdf, input_pdf, update!, train!, kldiv
 
-const MFloat64 = Union{Nothing, Float64}
-struct RestrictedBoltzmann{T, V, M, Rf<:Ref{MFloat64}}
+struct RestrictedBoltzmann{
+        T, V<:AbstractVector{T}, M<:AbstractMatrix{T}, Rf<:Ref{Union{T, Nothing}}
+}
     inputsize::Int
     hiddensize::Int
     
@@ -25,25 +26,24 @@ struct RestrictedBoltzmann{T, V, M, Rf<:Ref{MFloat64}}
     cd_num::Int
 
     ## Scratch space
-    inputgrad::Vector{T}
-    hiddengrad::Vector{T}
-    weightsgrad::Matrix{T}
-
-    condavg_hidden::Vector{T}
-    hiddeninput_prod::Matrix{T}
-
     partitionfunc::Rf
 end
 function RestrictedBoltzmann(
         inputbias, hiddenbias, weights;
         learning_rate, cd_num, partitionfunc=nothing
 )
-    ref = Ref{MFloat64}(partitionfunc)
-    RestrictedBoltzmann{eltype(inputbias), typeof(inputbias), typeof(weights), typeof(ref)}(
+    # This function might not be intended for public use...
+    T = Base.promote_eltype(inputbias, hiddenbias, weights)
+
+    inputbias, hiddenbias = promote(inputbias, hiddenbias)
+    inputbias = convert(AbstractArray{T}, inputbias)
+    hiddenbias = convert(AbstractArray{T}, hiddenbias)
+    weights = convert(AbstractArray{T}, weights)
+    ref = Ref{Union{T, Nothing}}(partitionfunc)
+
+    RestrictedBoltzmann{T, typeof(inputbias), typeof(weights), typeof(ref)}(
         length(inputbias), length(hiddenbias),
         inputbias, hiddenbias, weights, learning_rate, cd_num,
-        similar(inputbias), similar(hiddenbias), similar(weights),
-        similar(hiddenbias), similar(weights),
         ref
     )
 end
@@ -66,14 +66,10 @@ function RestrictedBoltzmann(
         init((hiddensize, inputsize)) else weights_init((hiddensize, inputsize))
     end
 
-    ref = Ref{MFloat64}(partitionfunc)
-
-    RestrictedBoltzmann{eltype(inputbias), typeof(inputbias), typeof(weights), typeof(ref)}(
-        inputsize, hiddensize,
-        inputbias, hiddenbias, weights, learning_rate, cd_num,
-        similar(inputbias), similar(hiddenbias), similar(weights),
-        similar(hiddenbias), similar(weights),
-        ref
+    RestrictedBoltzmann(
+        inputbias, hiddenbias, weights;
+        learning_rate=learning_rate, cd_num=cd_num,
+        partitionfunc=partitionfunc
     )
 end
 
