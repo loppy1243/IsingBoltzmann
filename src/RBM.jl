@@ -193,7 +193,7 @@ end
 
         condavg_hidden!(rbm, σ2)
         rbm.inputgrad   .+= σ2
-        rbm.hiddengrad  .+= h2
+        rbm.hiddengrad  .+= rbm.condavg_hidden
         mul!(rbm.hiddeninput_prod, h2, σ2')
         rbm.weightsgrad .+= rbm.hiddeninput_prod
 
