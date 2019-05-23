@@ -77,7 +77,7 @@ function RestrictedBoltzmann(
     )
 end
 
-Base.eltype(rbm::RestrictedBoltzmann{T}) where T = T
+Base.eltype(rbm::Type{<:RestrictedBoltzmann{T}}) where T = T
 
 energy(rbm, inputs, hiddens) =
     -sum(rbm.inputbias.*inputs) - sum(hiddens.*rbm.hiddenbias) - sum(hiddens.*rbm.weights*inputs)
