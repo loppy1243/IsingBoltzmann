@@ -77,7 +77,7 @@ function RestrictedBoltzmann(
     )
 end
 
-Base.eltype(rbm::RestrictedBoltzmann{T}) where T = T
+Base.eltype(rbm::Type{<:RestrictedBoltzmann{T}}) where T = T
 
 energy(rbm, inputs, hiddens) =
     -sum(rbm.inputbias.*inputs) - sum(hiddens.*rbm.hiddenbias) - sum(hiddens.*rbm.weights*inputs)
@@ -109,10 +109,12 @@ function condavg_hidden!(rbm, σ)
     rbm.condavg_hidden .= sigmoid.(rbm.hiddenbias .+ rbm.condavg_hidden)
 end
 
-struct AltGibbsSampler <: Random.Sampler{NTuple{2, BitVector}}
-    rbm::RestrictedBoltzmann
+struct AltGibbsSampler{Rbm<:RestrictedBoltzmann} <: Random.Sampler{NTuple{2, BitVector}}
+    rbm::Rbm
     inputs::BitVector
     hiddens::BitVector
+
+    AltGibbsSampler(rbm, inputs, hiddens) = new{typeof(rbm)}(rbm, inputs, hiddens)
 end
 @default_first_arg(
 function AltGibbsSampler(rng::AbstractRNG=GLOBAL_RNG, rbm, inputs0)
