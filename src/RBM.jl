@@ -225,7 +225,7 @@ module KLDivGradKernels
     export KLDivGradKernel, ExactKernel, ApproxKernel, CuArrayKernel
 
     ## Subtypes must implement the method
-    ##     (::KLDivGradKernel)(rng, rbm)
+    ##     σgrad, hgrad, Wgrad = (::KLDivGradKernel)(rng, rbm, data)
     abstract type KLDivGradKernel end
 
     Base.@kwdef struct PosNegNodes
@@ -346,11 +346,7 @@ function (kern::ApproxKernel)(rng, rbm, batch)
     kern.grad.inputs, kern.grad.hiddens, kern.grad.weights
 end
 
-@default_first_arg update!(rng::AbstractRNG=GLOBAL_RNG, rbm, batch) =
-    update!(rng, rbm, ExactKernel(rbm), batch)
-@default_first_arg function update!(
-        rng::AbstractRNG=GLOBAL_RNG, rbm, kern::KLDivGradKernel, batch
-)
+@default_first_arg function update!(rng::AbstractRNG=GLOBAL_RNG, rbm, kern, batch)
     σgrad, hgrad, Wgrad = kern(rng, rbm, batch)
 
     rbm.inputbias  .-= rbm.learning_rate.*σgrad
@@ -361,11 +357,7 @@ end
     rbm
 end
 
-@default_first_arg train!(rng::AbstractRNG=GLOBAL_RNG, rbm, minibatches) =
-    train!(rng, rbm, ExactKernel(rbm), minibatches)
-@default_first_arg function train!(
-        rng::AbstractRNG=GLOBAL_RNG, rbm, kern::KLDivGradKernel, minibatches
-)
+@default_first_arg function train!(rng::AbstractRNG=GLOBAL_RNG, rbm, kern, minibatches)
     perm = randperm(rng, size(minibatches, ndims(minibatches)))
     permute!(minibatches, perm)
 
