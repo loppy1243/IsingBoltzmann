@@ -26,6 +26,7 @@ Base.@kwdef mutable struct AppConfig
     nhiddens::Int
     learning_rate::Float64
     cd_num::Int
+    kldiv_grad_kernel::Type{<:KLDivGradKernel}
 
     nepochs::Int
     sample_epochs::Vector{Int}
@@ -65,28 +66,41 @@ train(config) = _train(_nothing, ising(config), config)
 train(cb, config) = _train(cb, ising(config), config)
 train(cb, ising, config) = _train(cb, ising, config)
 function _train(cb, ising, config)
+    rbmachine = rbm(config)
+    kern = if hasmethod(config.kldiv_grad_kernel, Tuple{RestrictedBoltzmann})
+        config.kldiv_grad_kernel(rbmachine)
+    else
+        error(
+            "Don't know how to build kernel ", config.kldiv_grad_kernel, " from given ",
+            "configuration.\n\n",
+            "Provide a method ", config.kldiv_grad_kernel, "(::RestrictedBoltzmann) or ",
+            "construct RBM and kernel explicitly and pass to train!()."
+        )
+    end
+
     metro = MetropolisIsingSampler(ising; init=dims -> spinrand(config.rng, dims))
     ising_samples = rand(config.rng, metro, config.nsamples)
 
     _train!(
-        cb, config.rng, rbm(config), ising, ising_samples, config.batchsize,
+        cb, config.rng, rbmachine, kern, ising, ising_samples, config.batchsize,
         config.nepochs
     )
 end
 
 train!(args...) = _train!(_nothing, Random.GLOBAL_RNG, args...)
-train!(rng::AbstractRNG, args...) = _train!(_nothing, rng, args...)
 train!(cb::Function, args...) = _train!(cb, Random.GLOBAL_RNG, args...)
+train!(rng::AbstractRNG, args...) = _train!(_nothing, rng, args...)
+train!(kern::KLDivGradKernel, args...) = _train!(_nothing, rng, args...)
 train!(cb::Function, rng::AbstractRNG, args...) = _train!(rng, cb, args...)
-function _train!(cb, rng, rbm, ising, ising_samples, batchsize, nepochs)
+function _train!(cb, rng, rbm, kern, ising, ising_samples, batchsize, nepochs)
     batches = batch(map(vec, ising_samples), batchsize)
     for epoch = 1:nepochs
         cb(epoch-1, nepochs, rbm, ising, ising_samples)
-        RBM.train!(rng, rbm, batches)
+        RBM.train!(rng, rbm, kern, batches)
     end
     cb(nepochs, nepochs, rbm, ising, ising_samples)
 
-    rbm
+    rbm, kern
 end
 
 end # module IsingBoltzmann
