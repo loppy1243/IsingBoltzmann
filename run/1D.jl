@@ -21,6 +21,7 @@ const CONFIG = IsingBoltzmann.AppConfig(
     nhiddens=6,
     learning_rate=0.1,
     cd_num=5,
+    kldiv_grad_kernel=KLDivGradKernels.ExactKernel,
 
     nepochs=1000,
     sample_epochs=[10, 500, 1000],
@@ -41,7 +42,7 @@ function main()
     )
 
     cb = callback(CONFIG.sample_epochs, prob_exact, prob_rbm, kldivs_exact, kldivs_approx)
-    rbm = train(cb, isingmodel, CONFIG)
+    rbm, kern = train(cb, isingmodel, CONFIG)
 
     plot(0:CONFIG.nepochs, [kldivs_exact kldivs_approx], label=["Exact" "Approx"],
         yscale = :log10,

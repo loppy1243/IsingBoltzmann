@@ -362,7 +362,7 @@ end
     permute!(minibatches, perm)
 
     for b in minibatches
-        update!(rng, rbm, b)
+        update!(rng, rbm, kern, b)
     end
 
     perm
