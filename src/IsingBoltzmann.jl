@@ -78,11 +78,11 @@ train!(args...) = _train!(_nothing, Random.GLOBAL_RNG, args...)
 train!(rng::AbstractRNG, args...) = _train!(_nothing, rng, args...)
 train!(cb::Function, args...) = _train!(cb, Random.GLOBAL_RNG, args...)
 train!(cb::Function, rng::AbstractRNG, args...) = _train!(rng, cb, args...)
-function _train!(cb, rng, rbm, ising, ising_samples, batchsize, nepochs)
+function _train!(cb, rng, rbm, kern, ising, ising_samples, batchsize, nepochs)
     batches = batch(map(vec, ising_samples), batchsize)
     for epoch = 1:nepochs
         cb(epoch-1, nepochs, rbm, ising, ising_samples)
-        RBM.train!(rng, rbm, batches)
+        RBM.train!(rng, rbm, kern, batches)
     end
     cb(nepochs, nepochs, rbm, ising, ising_samples)
 
