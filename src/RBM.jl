@@ -168,10 +168,6 @@ function altgibbs! end
     AltGibbsSampler!(rng, ag, inputs0)
     copy ? Base.copy(ag.hiddens) : ag.hiddens
 end
-@default_first_arg function altgibbs!(rng=GLOBAL_RNG, ag::AltGibbsSampler, inputs0)
-    AltGibbsSampler!(rng, ag, inputs0)
-    ag, copy(ag.hiddens)
-end
 
 function Random.rand(rng::AbstractRNG, cd::AltGibbsSampler; copy=true)
     for k in eachindex(cd.inputs)
