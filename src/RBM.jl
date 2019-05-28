@@ -260,15 +260,15 @@ module KLDivGradKernels
         σh_sampler::AltGibbsSampler{Rbm}
         grad::Grad{V, M}
         pos_h::BitVector
-        condavg_h::Vector{Float64}
-        hσ_prod::Matrix{Float64}
+        condavg_h::Vector{T}
+        hσ_prod::Matrix{T}
     end
     ExactKernel(rbm) = ExactKernel{eltype(rbm), biastype(rbm), weightstype(rbm), typeof(rbm)}(
         AltGibbsSampler(undef, rbm),
         Grad(rbm),
         BitVector(undef, rbm.hiddensize),
-        Vector{Float64}(undef, rbm.hiddensize),
-        Matrix{Float64}(undef, rbm.hiddensize, rbm.inputsize)
+        Vector{eltype(rbm)}(undef, rbm.hiddensize),
+        Matrix{eltype(rbm)}(undef, rbm.hiddensize, rbm.inputsize)
     )
 
     struct ApproxKernel{
@@ -277,13 +277,13 @@ module KLDivGradKernels
         σh_sampler::AltGibbsSampler{Rbm}
         grad::Grad{V, M}
         pos_h::BitVector
-        hσ_prod::Matrix{Float64}
+        hσ_prod::Matrix{T}
     end
     ApproxKernel(rbm) = ApproxKernel{eltype(rbm), biastype(rbm), weightstype(rbm), typeof(rbm)}(
         AltGibbsSampler(undef, rbm),
         Grad(rbm),
         BitVector(undef, rbm.hiddensize),
-        Matrix{Float64}(undef, rbm.hiddensize, rbm.inputsize)
+        Matrix{eltype(rbm)}(undef, rbm.hiddensize, rbm.inputsize)
     )
 
     struct CuArrayKernel <: KLDivGradKernel
