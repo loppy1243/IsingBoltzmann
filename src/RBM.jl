@@ -228,21 +228,6 @@ module KLDivGradKernels
     ##     σgrad, hgrad, Wgrad = (::KLDivGradKernel)(rng, rbm, data)
     abstract type KLDivGradKernel end
 
-    Base.@kwdef struct PosNegNodes
-        pos_inputs::Vector{BitVector}
-        pos_hiddens::Vector{BitVector}
-        neg_inputs::Vector{BitVector}
-        neg_hiddens::Vector{BitVector}
-    end
-    function PosNegNodes(rbm, batchsize)
-        PosNegNodes(
-            [BitVector(undef, rbm.inputsize)  for _ = 1:batchsize],
-            [BitVector(undef, rbm.hiddensize) for _ = 1:batchsize],
-            [BitVector(undef, rbm.inputsize)  for _ = 1:batchsize],
-            [BitVector(undef, rbm.hiddensize) for _ = 1:batchsize]
-        )
-    end
-
     Base.@kwdef struct Grad{V, M}
         inputs::V
         hiddens::V
