@@ -1,10 +1,12 @@
-module IsingBoltzmann1DRun
+module IsingBoltzmannCuda1DRun
 ## Internal ####################################################################
 using IsingBoltzmann
 ## stdlib ######################################################################
 import Dates
 ## External ####################################################################
 using Plots; Plots.gr()
+using CuArrays
+import CuArrays.CURAND, CUDAnative
 ################################################################################
 ## Individual: Internal ########################################################
 using IsingBoltzmann: bitstrings
@@ -21,15 +23,35 @@ const CONFIG = IsingBoltzmann.AppConfig(
     nhiddens=6,
     learning_rate=0.1,
     cd_num=5,
-    kldiv_grad_kernel=KLDivGradKernels.ExactKernel,
+    kldiv_grad_kernel=KLDivGradKernels.CuExactKernel,
 
     nepochs=1000,
     nsamples=10^5,
     batchsize=50,
-    rng=MersenneTwister(1022150136457226227)
+    rng=MersenneTwister(1022150136457226227),
+
+    cuarrays=true
+    # curng=nothing
 )
 
-function main(; sample_epochs=[10, 500, 1000])
+## Based on https://github.com/JuliaGPU/CuArrays.jl/pull/344
+function makecurng(seed, offset)
+    rng = CURAND.generator()
+    CURAND.set_pseudo_random_generator_seed(rng, seed)
+    CURAND.set_generator_offset(rng, offset)
+    CURAND.generate_seeds(rng)
+
+    rng
+end
+
+function __init__()
+    CUDAnative.initialize()
+    CONFIG.curng = makecurng(228106312280517615, 647)
+
+    nothing
+end
+
+function main(; sample_epochs=[10, 500, 1000], debug=false)
     isingmodel = ising(CONFIG)
 
     kldivs_exact = Vector{Float64}(undef, CONFIG.nepochs+1)
@@ -43,9 +65,12 @@ function main(; sample_epochs=[10, 500, 1000])
     )
 
     cb = callback(
-        ising_pf, sample_epochs, prob_exact, prob_rbm, kldivs_exact, kldivs_approx
+        IsingBoltzmann.cpu_rbm(CONFIG),
+        ising_pf, sample_epochs,
+        prob_exact, prob_rbm,
+        kldivs_exact, kldivs_approx
     )
-    rbm, kern = train(cb, isingmodel, CONFIG)
+    train(cb, isingmodel, CONFIG)
 
     plot(0:CONFIG.nepochs, [kldivs_exact kldivs_approx], label=["Exact" "Approx"],
         yscale = :log10,
@@ -76,16 +101,18 @@ function main(; sample_epochs=[10, 500, 1000])
     savefig("pdf_1D.pdf")
 end
 
-callback(ising_pf, sample_epochs, prob_exact, prob_rbm, kldivs_exact, kldivs_approx) =
-function(epoch, nepochs, rbm, ising, ising_samples)
+callback(cpu_rbm, ising_pf, sample_epochs, prob_exact, prob_rbm, kldivs_exact, kldivs_approx) =
+function(epoch, nepochs, gpu_rbm, ising, ising_samples)
     epochfmt(epoch) = lpad(epoch, ndigits(nepochs))
     numfmt(num) = @sprintf("%.5f", num)
     deltafmt(num) = @sprintf("%+.5f", num)
 
-    rbm_pf = RBM.partitionfunc(rbm)
+    copyweights!(cpu_rbm, gpu_rbm)
 
-    kld_exact = kldiv(rbm, Ising.pdf(ising; pfunc=ising_pf))
-    kld_approx = kldiv(rbm, ising_samples)
+    rbm_pf = RBM.partitionfunc(cpu_rbm)
+
+    kld_exact = kldiv(cpu_rbm, Ising.pdf(ising; pfunc=ising_pf))
+    kld_approx = kldiv(cpu_rbm, ising_samples)
     kldivs_exact[epoch+1] = kld_exact
     kldivs_approx[epoch+1] = kld_approx
     Δexact = kld_exact - kldivs_exact[max(1, epoch)]
@@ -97,7 +124,8 @@ function(epoch, nepochs, rbm, ising, ising_samples)
     )
 
     if epoch in sample_epochs
-        prob_rbm[epoch] .= RBM.input_pdf.(Ref(rbm), bitstrings(rbm.inputsize); pfunc=rbm_pf)
+        prob_rbm[epoch] .=
+            RBM.input_pdf.(Ref(cpu_rbm), bitstrings(cpu_rbm.inputsize); pfunc=rbm_pf)
     end
 end
 

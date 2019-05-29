@@ -1,5 +1,4 @@
 ### NOTE: The Ising model uses spins ∈ {+-1}; the Boltzmann machine uses variables ∈ {0,1}.
-### These have to be transformed between properly!
 
 module IsingBoltzmann
 ## stdlib ######################################################################
@@ -7,8 +6,13 @@ using Random
 ################################################################################
 ## Individual ##################################################################
 using Reexport: @reexport
+using Requires: @require
 
-export ising, rbm, train
+export ising, rbm, cpu_rbm, train
+
+function __init__()
+    @require CuArrays="3a865a2d-5b23-5a0f-bc46-62713ec82fae" include("cuarrays.jl")
+end
 
 include("utils.jl")
 include("MetropolisHastings.jl"); @reexport using .MetropolisHastings
@@ -29,19 +33,19 @@ Base.@kwdef mutable struct AppConfig
     kldiv_grad_kernel::Type{<:KLDivGradKernel}
 
     nepochs::Int
-    sample_epochs::Vector{Int}
     nsamples::Int
     batchsize::Int
     rng::AbstractRNG
+
+    cuarrays::Bool=false
+    curng::Any=nothing
 end
-propertynames(config::AppConfig, ::Bool) = (fieldnames(config)..., :ndims, :nspins)
+propertynames(config::AppConfig, ::Bool) = (:ndims, :nspins, fieldnames(config)...)
 Base.getproperty(config::AppConfig, s::Symbol) =
     if s === :ndims
         length(getfield(config, :spinsize))
     elseif s === :nspins
         prod(getfield(config, :spinsize))
-    elseif s === :n_sample_epochs
-        length(getfield(config, :sample_epochs))
     else
         getfield(config, s)
     end
@@ -51,7 +55,14 @@ ising(config) =
         coupling=config.coupling, invtemp=config.invtemp
     )
 
-function rbm(config)
+rbm(config) =
+    if config.cuarrays
+        cuarrays_rbm(config)
+    else
+        cpu_rbm(config)
+    end
+
+function cpu_rbm(config)
     init(dims) =
         sqrt(inv(config.nspins+config.nhiddens)).*2.0.*(rand(config.rng, dims...) .- 0.5)
 

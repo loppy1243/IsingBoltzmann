@@ -8,9 +8,15 @@ using LinearAlgebra: mul!
 ## External ####################################################################
 using Random: GLOBAL_RNG
 using Reexport: @reexport
+using Requires: @require
+
+function __init__()
+    @require CuArrays="3a865a2d-5b23-5a0f-bc46-62713ec82fae" include("RBM/cuarrays.jl")
+end
 
 export RestrictedBoltzmann,
        biastype, weightstype,
+       copyweights!,
        energy, partitionfunc, pdf, input_pdf, kldiv,
        KLDivGradKernels, update!, train!
 
@@ -27,6 +33,7 @@ struct RestrictedBoltzmann{T, V<:AbstractVector{T}, M<:AbstractMatrix{T}}
     learning_rate::Float64
     cd_num::Int
 end
+
 function RestrictedBoltzmann(
         inputbias, hiddenbias, weights;
         learning_rate, cd_num
@@ -69,6 +76,14 @@ function RestrictedBoltzmann(
 end
 
 Base.eltype(::Type{<:RestrictedBoltzmann{T}}) where T = T
+
+function copyweights!(rbm1::RestrictedBoltzmann, rbm2::RestrictedBoltzmann)
+    copyto!(rbm1.inputbias, rbm2.inputbias)
+    copyto!(rbm1.hiddenbias, rbm2.hiddenbias)
+    copyto!(rbm1.weights, rbm2.weights)
+
+    rbm1
+end
 
 biastype(::Type{<:RestrictedBoltzmann{<:Any, V}}) where V = V
 biastype(rbm::RestrictedBoltzmann) = biastype(typeof(rbm))
@@ -114,16 +129,20 @@ end
 
 sigmoid(x) = inv(one(x)+exp(-x))
 
+condprob_input1(rbm, h) = sigmoid.(rbm.inputbias .+ rbm.weights'h)
 condprob_input1(rbm, k, h) = sigmoid(rbm.inputbias[k] + h'rbm.weights[:, k])
+condprob_hidden1(rbm, σ) = sigmoid.(rbm.hiddenbias .+ rbm.weights*σ)
 condprob_hidden1(rbm, k, σ) = sigmoid(rbm.hiddenbias[k] + rbm.weights[k, :]'σ)
 
-struct AltGibbsSampler{Rbm<:RestrictedBoltzmann} <: Random.Sampler{NTuple{2, BitVector}}
+struct AltGibbsSampler{V, Rbm<:RestrictedBoltzmann} <: Random.Sampler{NTuple{2, BitVector}}
     rbm::Rbm
-    inputs::BitVector
-    hiddens::BitVector
+    inputs::V
+    hiddens::V
 
-    AltGibbsSampler(rbm, inputs, hiddens) = new{typeof(rbm)}(rbm, inputs, hiddens)
+    AltGibbsSampler(rbm, inputs::V, hiddens::V) where V =
+        new{V, typeof(rbm)}(rbm, inputs, hiddens)
 end
+
 AltGibbsSampler(init::UndefInitializer, rbm) =
     AltGibbsSampler(rbm, BitVector(init, rbm.inputsize), BitVector(init, rbm.hiddensize))
 @default_first_arg(
@@ -136,6 +155,7 @@ function AltGibbsSampler(rng::AbstractRNG=GLOBAL_RNG, rbm::RestrictedBoltzmann, 
 
     AltGibbsSampler(rbm, copy(inputs0), hiddens)
 end)
+
 @default_first_arg(
 function AltGibbsSampler!(rng::AbstractRNG=GLOBAL_RNG, ag::AltGibbsSampler, inputs0)
     ag.inputs .= inputs0
@@ -176,20 +196,23 @@ end
 
 function Random.rand(rng::AbstractRNG, cd::AltGibbsSampler; copy=true)
     for k in eachindex(cd.inputs)
-        cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
+        @inbounds cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
     end
     for k in eachindex(cd.hiddens)
-        cd.hiddens[k] = rand(rng) <= condprob_hidden1(cd.rbm, k, cd.inputs)
+        @inbounds cd.hiddens[k] = rand(rng) <= condprob_hidden1(cd.rbm, k, cd.inputs)
     end
 
     copy ? (Base.copy(cd.inputs), Base.copy(cd.hiddens)) : (cd.inputs, cd.hiddens)
 end
+
 function Random.rand!(rng::AbstractRNG, (inputs, hiddens), cd::AltGibbsSampler)
-    for k in eachindex(cd.inputs)
-        inputs[k] = cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
+    for k in eachindex(inputs, cd.inputs)
+        @inbounds inputs[k] = cd.inputs[k] =
+            rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
     end
-    for k in eachindex(cd.hiddens)
-        hiddens[k] = cd.hiddens[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
+    for k in eachindex(hiddens, cd.hiddens)
+        @inbounds hiddens[k] = cd.hiddens[k] =
+            rand(rng) <= condprob_hidden1(cd.rbm, k, cd.inputs)
     end
 
     (inputs, hiddens)
@@ -233,7 +256,7 @@ end
 module KLDivGradKernels
     using ..RBM
     using ..RBM: AltGibbsSampler
-    export KLDivGradKernel, ExactKernel, ApproxKernel, CuArrayKernel
+    export KLDivGradKernel, ExactKernel, ApproxKernel, CuExactKernel, CuApproxKernel
 
     ## Subtypes must implement the method
     ##     σgrad, hgrad, Wgrad = (::KLDivGradKernel)(rng, rbm, data)
@@ -250,40 +273,35 @@ module KLDivGradKernels
     )
 
     ## See doc/kldiv_grad.tex for the difference between ExactKernel and ApproxKernel.
-    struct ExactKernel{
-            T, V<:AbstractVector{T}, M<:AbstractMatrix{T}, Rbm<:RestrictedBoltzmann{T, V, M}
-    } <: KLDivGradKernel
-        σh_sampler::AltGibbsSampler{Rbm}
+    struct ExactKernel{T, V<:AbstractVector{T}, M<:AbstractMatrix{T}} <: KLDivGradKernel
+        σh_sampler::AltGibbsSampler{RestrictedBoltzmann{T, V, M}}
         grad::Grad{V, M}
-        pos_h::BitVector
-        condavg_h::Vector{T}
-        hσ_prod::Matrix{T}
+        condavg_h::V
+        hσ_prod::M
     end
-    ExactKernel(rbm) = ExactKernel{eltype(rbm), biastype(rbm), weightstype(rbm), typeof(rbm)}(
+    ExactKernel(rbm) = ExactKernel{eltype(rbm), biastype(rbm), weightstype(rbm)}(
         AltGibbsSampler(undef, rbm),
         Grad(rbm),
-        BitVector(undef, rbm.hiddensize),
-        Vector{eltype(rbm)}(undef, rbm.hiddensize),
-        Matrix{eltype(rbm)}(undef, rbm.hiddensize, rbm.inputsize)
+        biastype(rbm)(undef, rbm.hiddensize),
+        weightstype(rbm)(undef, rbm.hiddensize, rbm.inputsize)
     )
 
     struct ApproxKernel{
-            T, V<:AbstractVector{T}, M<:AbstractMatrix{T}, Rbm<:RestrictedBoltzmann{T, V, M}
+            T, V<:AbstractVector{T}, M<:AbstractMatrix{T}, N<:AbstractVector{Bool}
     } <: KLDivGradKernel
-        σh_sampler::AltGibbsSampler{Rbm}
+        σh_sampler::AltGibbsSampler{RestrictedBoltzmann{T, V, M}}
         grad::Grad{V, M}
-        pos_h::BitVector
-        hσ_prod::Matrix{T}
+        pos_h::N
+        hσ_prod::M
     end
-    ApproxKernel(rbm) = ApproxKernel{eltype(rbm), biastype(rbm), weightstype(rbm), typeof(rbm)}(
-        AltGibbsSampler(undef, rbm),
-        Grad(rbm),
-        BitVector(undef, rbm.hiddensize),
-        Matrix{eltype(rbm)}(undef, rbm.hiddensize, rbm.inputsize)
-    )
-
-    struct CuArrayKernel <: KLDivGradKernel
-    end
+    ApproxKernel(rbm) =
+        ApproxKernel{eltype(rbm), biastype(rbm), weightstype(rbm), nodestype(rbm)}(
+            AltGibbsSampler(undef, rbm),
+            Grad(rbm),
+            BitVector(undef, rbm.hiddensize),
+            weightstype(rbm)(undef, rbm.hiddensize, rbm.inputsize)
+        )
+>>>>>>> 7769cb6... cuarrays-kernel: Fix type weights -> weightstype
 end
 @reexport using .KLDivGradKernels
 
