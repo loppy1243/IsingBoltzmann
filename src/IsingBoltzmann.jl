@@ -78,13 +78,15 @@ train(cb, config) = _train(cb, ising(config), config)
 train(cb, ising, config) = _train(cb, ising, config)
 function _train(cb, ising, config)
     rbmachine = rbm(config)
-    kern = if hasmethod(config.kldiv_grad_kernel, Tuple{RestrictedBoltzmann})
-        config.kldiv_grad_kernel(rbmachine)
-    else
+    local kern
+    try
+        kern = config.kldiv_grad_kernel(rbmachine)
+    catch ex
+        ex isa MethodError && ex.f == config.kldiv_grad_kernel || rethrow()
         error(
             "Don't know how to build kernel ", config.kldiv_grad_kernel, " from given ",
             "configuration.\n\n",
-            "Provide a method ", config.kldiv_grad_kernel, "(::RestrictedBoltzmann) or ",
+            "Provide a method ", config.kldiv_grad_kernel, "(::", typeof(rbmachine), ") or ",
             "construct RBM and kernel explicitly and pass to train!()."
         )
     end
