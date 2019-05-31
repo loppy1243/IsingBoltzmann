@@ -15,7 +15,7 @@ function __init__()
 end
 
 export RestrictedBoltzmann,
-       biastype, weightstype,
+       biastype, weightstype, nodestype,
        copyweights!,
        energy, partitionfunc, pdf, input_pdf, kldiv,
        KLDivGradKernels, update!, train!
@@ -91,6 +91,9 @@ biastype(rbm::RestrictedBoltzmann) = biastype(typeof(rbm))
 weightstype(::Type{<:RestrictedBoltzmann{<:Any, <:Any, M}}) where M = M
 weightstype(rbm::RestrictedBoltzmann) = weightstype(typeof(rbm))
 
+nodestype(::Type{<:RestrictedBoltzmann}) = BitVector
+nodestype(rbm::RestrictedBoltzmann) = nodestype(typeof(rbm))
+
 energy(rbm, inputs, hiddens) =
     -sum(rbm.inputbias.*inputs) - sum(hiddens.*rbm.hiddenbias) - sum(hiddens.*rbm.weights*inputs)
 eff_energy(rbm, inputs) = -rbm.inputbias'inputs - (
@@ -139,15 +142,15 @@ struct AltGibbsSampler{V, Rbm<:RestrictedBoltzmann} <: Random.Sampler{NTuple{2, 
     inputs::V
     hiddens::V
 
-    AltGibbsSampler(rbm, inputs::V, hiddens::V) where V =
-        new{V, typeof(rbm)}(rbm, inputs, hiddens)
+    AltGibbsSampler(rbm, inputs, hiddens) =
+        new{nodestype(rbm), typeof(rbm)}(rbm, inputs, hiddens)
 end
 
 AltGibbsSampler(init::UndefInitializer, rbm) =
-    AltGibbsSampler(rbm, BitVector(init, rbm.inputsize), BitVector(init, rbm.hiddensize))
+    AltGibbsSampler(rbm, nodestype(rbm)(init, rbm.inputsize), nodestype(rbm)(init, rbm.hiddensize))
 @default_first_arg(
 function AltGibbsSampler(rng::AbstractRNG=GLOBAL_RNG, rbm::RestrictedBoltzmann, inputs0)
-    hiddens = BitVector(undef, rbm.hiddensize)
+    hiddens = nodestype(rbm)(undef, rbm.hiddensize)
 
     for k in eachindex(hiddens)
         hiddens[k] = rand(rng) <= condprob_hidden1(rbm, k, inputs0)
@@ -273,23 +276,26 @@ module KLDivGradKernels
     )
 
     ## See doc/kldiv_grad.tex for the difference between ExactKernel and ApproxKernel.
-    struct ExactKernel{T, V<:AbstractVector{T}, M<:AbstractMatrix{T}} <: KLDivGradKernel
-        σh_sampler::AltGibbsSampler{RestrictedBoltzmann{T, V, M}}
+    struct ExactKernel{
+            T, V<:AbstractVector{T}, M<:AbstractMatrix{T}, N<:AbstractVector{Bool}
+    } <: KLDivGradKernel
+        σh_sampler::AltGibbsSampler{N, RestrictedBoltzmann{T, V, M}}
         grad::Grad{V, M}
         condavg_h::V
         hσ_prod::M
     end
-    ExactKernel(rbm) = ExactKernel{eltype(rbm), biastype(rbm), weightstype(rbm)}(
-        AltGibbsSampler(undef, rbm),
-        Grad(rbm),
-        biastype(rbm)(undef, rbm.hiddensize),
-        weightstype(rbm)(undef, rbm.hiddensize, rbm.inputsize)
-    )
+    ExactKernel(rbm) =
+        ExactKernel{eltype(rbm), biastype(rbm), weightstype(rbm), nodestype(rbm)}(
+            AltGibbsSampler(undef, rbm),
+            Grad(rbm),
+            biastype(rbm)(undef, rbm.hiddensize),
+            weightstype(rbm)(undef, rbm.hiddensize, rbm.inputsize)
+        )
 
     struct ApproxKernel{
             T, V<:AbstractVector{T}, M<:AbstractMatrix{T}, N<:AbstractVector{Bool}
     } <: KLDivGradKernel
-        σh_sampler::AltGibbsSampler{RestrictedBoltzmann{T, V, M}}
+        σh_sampler::AltGibbsSampler{N, RestrictedBoltzmann{T, V, M}}
         grad::Grad{V, M}
         pos_h::N
         hσ_prod::M
@@ -298,10 +304,9 @@ module KLDivGradKernels
         ApproxKernel{eltype(rbm), biastype(rbm), weightstype(rbm), nodestype(rbm)}(
             AltGibbsSampler(undef, rbm),
             Grad(rbm),
-            BitVector(undef, rbm.hiddensize),
+            nodestype(rbm)(undef, rbm.hiddensize),
             weightstype(rbm)(undef, rbm.hiddensize, rbm.inputsize)
         )
->>>>>>> 7769cb6... cuarrays-kernel: Fix type weights -> weightstype
 end
 @reexport using .KLDivGradKernels
 

@@ -4,10 +4,8 @@ import CuArrays.CURAND, CUDAnative
 const CuRestrictedBoltzmann{T} = RestrictedBoltzmann{T, CuVector{T}, CuMatrix{T}}
 const CuAltGibbsSampler{T} = AltGibbsSampler{CuVector{Bool}, CuRestrictedBoltzmann{T}}
 
-AltGibbsSampler(init::UndefInitializer, rbm::CuRestrictedBoltzmann) =
-    AltGibbsSampler(
-        rbm, CuVector{Bool}(init, rbm.inputsize), CuVector{Bool}(init, rbm.hiddensize)
-    )
+nodestype(::Type{<:CuRestrictedBoltzmann}) = CuVector{Bool}
+
 AltGibbsSampler(::Any, ::CuRestrictedBoltzmann, ::Any) =
     error("Must use CUDA RNG with CuArrays")
 AltGibbsSampler(::CuRestrictedBoltzmann, ::Any) =
