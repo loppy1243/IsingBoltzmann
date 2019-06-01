@@ -265,7 +265,7 @@ module KLDivGradKernels
     ##     σgrad, hgrad, Wgrad = (::KLDivGradKernel)(rng, rbm, data)
     abstract type KLDivGradKernel end
 
-    Base.@kwdef struct Grad{V, M}
+    struct Grad{V, M}
         inputs::V
         hiddens::V
         weights::M
