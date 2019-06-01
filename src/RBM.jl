@@ -349,13 +349,13 @@ function (kern::ApproxKernel)(rng, rbm, batch)
     fill!(kern.grad.weights, z)
 
     for σ⁺ in batch
-        kern.pos_h .= altgibbs!(rng, kern.σh_sampler, σ; copy=false)
+        kern.pos_h .= altgibbs!(rng, kern.σh_sampler, σ⁺; copy=false)
         σ⁻, h⁻ = rand(rng, kern.σh_sampler; copy=false)
 
-        kern.grad.inputs .+= σ⁻ .- σ
-        kern.grad.hiddens .+= h⁻ .- h
+        kern.grad.inputs .+= σ⁻ .- σ⁺
+        kern.grad.hiddens .+= h⁻ .- kern.pos_h
         kern.grad.weights .+= mul!(kern.hσ_prod, h⁻, σ⁻')
-        kern.grad.weights .-= mul!(kern.hσ_prod, h⁺, σ⁺')
+        kern.grad.weights .-= mul!(kern.hσ_prod, kern.pos_h, σ⁺')
     end
     L = length(batch)
     kern.grad.inputs  ./= L
