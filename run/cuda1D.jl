@@ -59,26 +59,33 @@ function main(; sample_epochs=[10, 500, 1000], debug=false)
 
     ising_pf = Ising.partitionfunc(isingmodel)
 
+    debug && print("Computing Ising PDF...")
     prob_exact = Ising.pdf.(Ref(isingmodel), spinstates(isingmodel); pfunc=ising_pf)
+    debug && println(" Done.")
     prob_rbm = Dict(epoch => Vector{Float64}(undef, 2^CONFIG.nspins)
         for epoch in sample_epochs
     )
 
     cb = callback(
+        debug,
         IsingBoltzmann.cpu_rbm(CONFIG),
         ising_pf, sample_epochs,
         prob_exact, prob_rbm,
         kldivs_exact, kldivs_approx
     )
+    debug && println("Creating and training RBM:")
     train(cb, isingmodel, CONFIG)
 
+    debug && print("Creating kldiv plot...")
     plot(0:CONFIG.nepochs, [kldivs_exact kldivs_approx], label=["Exact" "Approx"],
         yscale = :log10,
         title="Ising 1D RBM KL Divergence", xlabel="Epoch", ylabel="KL Divergence"
     )
     annotate!([(0, 0, text(Dates.now(), "monospace", 12))])
     savefig("kldiv_1D.pdf")
+    debug && print(" Done.")
 
+    debug && print("Creaing PDF plot...")
     first = true
     plts = []
     for epoch in sample_epochs
@@ -99,20 +106,26 @@ function main(; sample_epochs=[10, 500, 1000], debug=false)
     )
     annotate!([(0, 0, text(Dates.now(), "monospace", 12))])
     savefig("pdf_1D.pdf")
+    debug && println(" Done.")
 end
 
-callback(cpu_rbm, ising_pf, sample_epochs, prob_exact, prob_rbm, kldivs_exact, kldivs_approx) =
+callback(debug, cpu_rbm, ising_pf, sample_epochs, prob_exact, prob_rbm, kldivs_exact, kldivs_approx) =
 function(epoch, nepochs, gpu_rbm, ising, ising_samples)
     epochfmt(epoch) = lpad(epoch, ndigits(nepochs))
     numfmt(num) = @sprintf("%.5f", num)
     deltafmt(num) = @sprintf("%+.5f", num)
 
+    debug && print("    Copying RBM from GPU...")
     copyweights!(cpu_rbm, gpu_rbm)
+    debug && println(" Done.")
 
     rbm_pf = RBM.partitionfunc(cpu_rbm)
 
-    kld_exact = kldiv(cpu_rbm, Ising.pdf(ising; pfunc=ising_pf))
-    kld_approx = kldiv(cpu_rbm, ising_samples)
+    debug && print("    Computing kldiv_exact...")
+    kld_exact = kldiv(cpu_rbm, Ising.pdf(ising; pfunc=ising_pf); pfunc=rbm_pf)
+    debug && print(" Done.\nCompuing kldiv_approx...")
+    kld_approx = kldiv(cpu_rbm, ising_samples; pfunc=rbm_pf)
+    debug && println(" Done.")
     kldivs_exact[epoch+1] = kld_exact
     kldivs_approx[epoch+1] = kld_approx
     Δexact = kld_exact - kldivs_exact[max(1, epoch)]
@@ -124,8 +137,10 @@ function(epoch, nepochs, gpu_rbm, ising, ising_samples)
     )
 
     if epoch in sample_epochs
+        debug && print("    Computing RBM PDF for epoch ", epoch, "...")
         prob_rbm[epoch] .=
             RBM.input_pdf.(Ref(cpu_rbm), bitstrings(cpu_rbm.inputsize); pfunc=rbm_pf)
+        debug && println(" Done.")
     end
 end
 
