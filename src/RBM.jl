@@ -18,7 +18,7 @@ export RestrictedBoltzmann,
        biastype, weightstype, nodestype,
        copyweights!,
        energy, partitionfunc, pdf, input_pdf, kldiv,
-       KLDivGradKernels, update!, train!
+       KLDivGradKernels, update!
 
 struct RestrictedBoltzmann{T, V<:AbstractVector{T}, M<:AbstractMatrix{T}}
     inputsize::Int
@@ -373,17 +373,6 @@ end
     rbm.weights    .-= rbm.learning_rate.*Wgrad
 
     rbm
-end
-
-@default_first_arg function train!(rng::AbstractRNG=GLOBAL_RNG, rbm, kern, minibatches)
-    perm = randperm(rng, size(minibatches, ndims(minibatches)))
-    permute!(minibatches, perm)
-
-    for b in minibatches
-        update!(rng, rbm, kern, b)
-    end
-
-    perm
 end
 
 end # module RBM
