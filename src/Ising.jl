@@ -97,21 +97,30 @@ spinstates(T::Type, m) =
     (convert(T, state) for state in spinstates(m))
 
 hamiltonian(m::MIsingSampler) = hamiltonian(m.model, m.world)
-hamiltonian(m::IsingModel, x) =
-    -m.coupling*(
-        sum(eachindex(x)) do i; sum(neighborhood(m, x, i)) do n
-            1 - 2*xor(x[i], n)
-        end end
-    )
-## We get a 2 since we have to consider the contribution of the site that flipped and its
-## neighbors' contributions
+function hamiltonian(m::IsingModel, x)
+    ret = zero(m.coupling)
+    for i in eachindex(x)
+        for n in neighborhood(m, x, i)
+            ret += 1 - 2*xor(x[i], n)
+        end
+    end
+
+    -m.coupling*ret
+end
+
 hamildiff(m::MIsingSampler, ixs) = hamildiff(m.model, m.world, ixs)
-hamildiff(m::IsingModel, x, ixs) =
-    -2*m.coupling*(
-        sum(ixs) do i; sum(neighborhood(m, x, i)) do n
-            # == (2*xor(x[i], n) - 1) - (2*xor(flipspin(x[i]), n) - 1)
-            2*(xor(flipspin(x[i]), n) - xor(x[i], n))
-        end end)
+## We get an _overall_ 2 since we have to consider the contribution of the site that flipped
+## and its neighbors' contributions
+function hamildiff(m::IsingModel, x, ixs)
+    ret = zero(m.coupling)
+    for i in ixs
+        for n in neighborhood(m, x, i)
+            ret += 2(xor(flipspin(x[i]), n) - xor(x[i], n))
+        end
+    end
+
+    -2m.coupling*ret
+end
 
 ## Can be generalized to a @generated function
 neighborhood(m::IsingModel{1, FixedBoundary}, x::AbstractSpinGrid{1}, i) =
