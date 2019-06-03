@@ -1,10 +1,12 @@
-module IsingBoltzmann1DRun
+module IsingBoltzmannCuda1DRun
 ## Internal ####################################################################
 using IsingBoltzmann
 ## stdlib ######################################################################
 import Dates
 ## External ####################################################################
 using Plots; Plots.gr()
+using CuArrays
+import CuArrays.CURAND, CUDAnative
 ################################################################################
 ## Individual: Internal ########################################################
 using IsingBoltzmann: bitstrings
@@ -21,13 +23,33 @@ const CONFIG = IsingBoltzmann.AppConfig(
     nhiddens=6,
     learning_rate=0.1,
     cd_num=5,
-    kldiv_grad_kernel=KLDivGradKernels.ExactKernel,
+    kldiv_grad_kernel=KLDivGradKernels.CuExactKernel,
 
     nepochs=1000,
     nsamples=10^5,
     batchsize=50,
-    rng=MersenneTwister(1022150136457226227)
+    rng=MersenneTwister(1022150136457226227),
+
+    cuarrays=true
+    # curng=nothing
 )
+
+## Based on https://github.com/JuliaGPU/CuArrays.jl/pull/344
+function makecurng(seed, offset)
+    rng = CURAND.generator()
+    CURAND.set_pseudo_random_generator_seed(rng, seed)
+    CURAND.set_generator_offset(rng, offset)
+    CURAND.generate_seeds(rng)
+
+    rng
+end
+
+function __init__()
+    CUDAnative.initialize()
+    CONFIG.curng = makecurng(228106312280517615, 647)
+
+    nothing
+end
 
 function main(; sample_epochs=[10, 500, 1000], debug=false)
     isingmodel = ising(CONFIG)
@@ -45,7 +67,11 @@ function main(; sample_epochs=[10, 500, 1000], debug=false)
     )
 
     cb = callback(
-        debug, ising_pf, sample_epochs, prob_exact, prob_rbm, kldivs_exact, kldivs_approx
+        debug,
+        IsingBoltzmann.cpu_rbm(CONFIG),
+        ising_pf, sample_epochs,
+        prob_exact, prob_rbm,
+        kldivs_exact, kldivs_approx
     )
     debug && println("Creating and training RBM:")
     train(cb, isingmodel, CONFIG)
@@ -57,9 +83,9 @@ function main(; sample_epochs=[10, 500, 1000], debug=false)
     )
     annotate!([(0, 0, text(Dates.now(), "monospace", 12))])
     savefig("kldiv_1D.pdf")
-    debug && println(" Done.")
+    debug && print(" Done.")
 
-    debug && print("Creating PDF plot...")
+    debug && print("Creaing PDF plot...")
     first = true
     plts = []
     for epoch in sample_epochs
@@ -83,18 +109,22 @@ function main(; sample_epochs=[10, 500, 1000], debug=false)
     debug && println(" Done.")
 end
 
-callback(debug, ising_pf, sample_epochs, prob_exact, prob_rbm, kldivs_exact, kldivs_approx) =
-function(epoch, nepochs, rbm, ising, ising_samples)
+callback(debug, cpu_rbm, ising_pf, sample_epochs, prob_exact, prob_rbm, kldivs_exact, kldivs_approx) =
+function(epoch, nepochs, gpu_rbm, ising, ising_samples)
     epochfmt(epoch) = lpad(epoch, ndigits(nepochs))
     numfmt(num) = @sprintf("%.5f", num)
     deltafmt(num) = @sprintf("%+.5f", num)
 
-    rbm_pf = RBM.partitionfunc(rbm)
+    debug && print("    Copying RBM from GPU...")
+    copyweights!(cpu_rbm, gpu_rbm)
+    debug && println(" Done.")
+
+    rbm_pf = RBM.partitionfunc(cpu_rbm)
 
     debug && print("    Computing kldiv_exact...")
-    kld_exact = kldiv(rbm, Ising.pdf(ising; pfunc=ising_pf); pfunc=rbm_pf)
-    debug && print(" Done.\n    Computing kldiv_approx...")
-    kld_approx = kldiv(rbm, ising_samples; pfunc=rbm_pf)
+    kld_exact = kldiv(cpu_rbm, Ising.pdf(ising; pfunc=ising_pf); pfunc=rbm_pf)
+    debug && print(" Done.\nCompuing kldiv_approx...")
+    kld_approx = kldiv(cpu_rbm, ising_samples; pfunc=rbm_pf)
     debug && println(" Done.")
     kldivs_exact[epoch+1] = kld_exact
     kldivs_approx[epoch+1] = kld_approx
@@ -107,8 +137,9 @@ function(epoch, nepochs, rbm, ising, ising_samples)
     )
 
     if epoch in sample_epochs
-        debug && print("    Calculating RBM PDF for epoch ", epoch, "...")
-        prob_rbm[epoch] .= RBM.input_pdf.(Ref(rbm), bitstrings(rbm.inputsize); pfunc=rbm_pf)
+        debug && print("    Computing RBM PDF for epoch ", epoch, "...")
+        prob_rbm[epoch] .=
+            RBM.input_pdf.(Ref(cpu_rbm), bitstrings(cpu_rbm.inputsize); pfunc=rbm_pf)
         debug && println(" Done.")
     end
 end

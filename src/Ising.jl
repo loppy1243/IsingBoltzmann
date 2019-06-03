@@ -16,10 +16,9 @@ mutable struct IsingModel{D, B}
     size::Dims{D}
     coupling::Float64
     invtemp::Float64
-    partitionfunc::Union{Nothing, Float64}
 
     IsingModel{D, B}(sz::Dims{D}; coupling, invtemp) where {D, B} =
-        new(sz, coupling, invtemp, nothing)
+        new(sz, coupling, invtemp)
 end
 IsingModel{D, B}(sz::Int...; kwargs...) where {D, B} = IsingModel{D, B}(sz; kwargs...)
 IsingModel(b, sz::Dims;   kwargs...) = IsingModel{length(sz), typeof(b)}(sz; kwargs...)
@@ -98,21 +97,30 @@ spinstates(T::Type, m) =
     (convert(T, state) for state in spinstates(m))
 
 hamiltonian(m::MIsingSampler) = hamiltonian(m.model, m.world)
-hamiltonian(m::IsingModel, x) =
-    -m.coupling*(
-        sum(eachindex(x)) do i; sum(neighborhood(m, x, i)) do n
-            1 - 2*xor(x[i], n)
-        end end
-    )
-## We get a 2 since we have to consider the contribution of the site that flipped and its
-## neighbors' contributions
+function hamiltonian(m::IsingModel, x)
+    ret = zero(m.coupling)
+    for i in eachindex(x)
+        for n in neighborhood(m, x, i)
+            ret += 1 - 2*xor(x[i], n)
+        end
+    end
+
+    -m.coupling*ret
+end
+
 hamildiff(m::MIsingSampler, ixs) = hamildiff(m.model, m.world, ixs)
-hamildiff(m::IsingModel, x, ixs) =
-    -2*m.coupling*(
-        sum(ixs) do i; sum(neighborhood(m, x, i)) do n
-            # == (2*xor(x[i], n) - 1) - (2*xor(flipspin(x[i]), n) - 1)
-            2*(xor(flipspin(x[i]), n) - xor(x[i], n))
-        end end)
+## We get an _overall_ 2 since we have to consider the contribution of the site that flipped
+## and its neighbors' contributions
+function hamildiff(m::IsingModel, x, ixs)
+    ret = zero(m.coupling)
+    for i in ixs
+        for n in neighborhood(m, x, i)
+            ret += 2(xor(flipspin(x[i]), n) - xor(x[i], n))
+        end
+    end
+
+    -2m.coupling*ret
+end
 
 ## Can be generalized to a @generated function
 neighborhood(m::IsingModel{1, FixedBoundary}, x::AbstractSpinGrid{1}, i) =
@@ -145,19 +153,19 @@ function neighborhood(m::IsingModel{2, FixedBoundary}, x::AbstractSpinGrid{2}, i
     [ret_i; ret_j]
 end
 
-pdf(m::IsingModel) = x -> Ising.pdf(m, x)
-pdf(m::IsingModel, x) = exp(-m.invtemp*hamiltonian(m, x))/partitionfunc(m)
-partitionfunc(m::IsingModel) =
-    isnothing(m.partitionfunc) ? _partitionfunc(m) : m.partitionfunc
-function _partitionfunc(m)
-    sum = 0.0
-    for spins in spinstrings(nspins(m))
-        sum += exp(-m.invtemp*hamiltonian(m, reshape(spins, m.size)))
-    end
+function pdf(m::IsingModel; pfunc=nothing)
+    isnothing(pfunc) && (pfunc = Ising.partitionfunc(m))
 
-    m.partitionfunc = sum
+    x -> Ising.pdf(m, x; pfunc=pfunc)
+end
+function pdf(m::IsingModel, x; pfunc=nothing)
+    isnothing(pfunc) && (pfunc = Ising.partitionfunc(m))
 
-    sum
+    exp(-m.invtemp*hamiltonian(m, x))/pfunc
+end
+
+partitionfunc(m::IsingModel) = sum(spinstates(m)) do spins
+    exp(-m.invtemp*hamiltonian(m, spins))
 end
 
 MetropolisHastings.currentsample(m::MIsingSampler) = m.world
