@@ -56,3 +56,23 @@ end
     export CuExactKernel, CuApproxKernel
 end
 @reexport using .KLDivGradKernels
+
+train!(rng::AbstractRNG, rbm::CuRestrictedBoltzmann, kern, minibatches) =
+    error("Must use CUDA RNG with CuArrays")
+train!(rbm::CuRestrictedBoltzmann, kern, minibatches) =
+    error("Must pass CUDA RNG explicitly with CuArrays")
+function train!(rng::CURAND.RNG, rbm::CuRestrictedBoltzmann, kern, minibatches)
+    perm = randperm(rng, size(minibatches, ndims(minibatches)))
+    permute!(minibatches, perm)
+
+    cu_b = Vector{CuVector{Bool}}(undef, length(minibatches[1]))
+    for k in eachindex(batch)
+        cu_b[k] = CuVector{Bool}(undef, length(minibatches[1][1]))
+    end
+    for b in minibatches
+        copyto!.(cu_b, b)
+        CuArrays.@sync update!(rng, rbm, kern, cu_b)
+    end
+
+    perm
+end
