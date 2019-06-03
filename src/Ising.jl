@@ -16,10 +16,9 @@ mutable struct IsingModel{D, B}
     size::Dims{D}
     coupling::Float64
     invtemp::Float64
-    partitionfunc::Union{Nothing, Float64}
 
     IsingModel{D, B}(sz::Dims{D}; coupling, invtemp) where {D, B} =
-        new(sz, coupling, invtemp, nothing)
+        new(sz, coupling, invtemp)
 end
 IsingModel{D, B}(sz::Int...; kwargs...) where {D, B} = IsingModel{D, B}(sz; kwargs...)
 IsingModel(b, sz::Dims;   kwargs...) = IsingModel{length(sz), typeof(b)}(sz; kwargs...)
@@ -145,19 +144,19 @@ function neighborhood(m::IsingModel{2, FixedBoundary}, x::AbstractSpinGrid{2}, i
     [ret_i; ret_j]
 end
 
-pdf(m::IsingModel) = x -> Ising.pdf(m, x)
-pdf(m::IsingModel, x) = exp(-m.invtemp*hamiltonian(m, x))/partitionfunc(m)
-partitionfunc(m::IsingModel) =
-    isnothing(m.partitionfunc) ? _partitionfunc(m) : m.partitionfunc
-function _partitionfunc(m)
-    sum = 0.0
-    for spins in spinstrings(nspins(m))
-        sum += exp(-m.invtemp*hamiltonian(m, reshape(spins, m.size)))
-    end
+function pdf(m::IsingModel; pfunc=nothing)
+    isnothing(pfunc) && (pfunc = Ising.partitionfunc(m))
 
-    m.partitionfunc = sum
+    x -> Ising.pdf(m, x; pfunc=pfunc)
+end
+function pdf(m::IsingModel, x; pfunc=nothing)
+    isnothing(pfunc) && (pfunc = Ising.partitionfunc(m))
 
-    sum
+    exp(-m.invtemp*hamiltonian(m, x))/pfunc
+end
+
+partitionfunc(m::IsingModel) = sum(spinstates(m)) do spins
+    exp(-m.invtemp*hamiltonian(m, spins))
 end
 
 MetropolisHastings.currentsample(m::MIsingSampler) = m.world

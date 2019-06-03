@@ -36,12 +36,16 @@ function main()
     kldivs_exact = Vector{Float64}(undef, CONFIG.nepochs+1)
     kldivs_approx = Vector{Float64}(undef, CONFIG.nepochs+1)
 
-    prob_exact = Ising.pdf.(Ref(isingmodel), spinstates(isingmodel))
+    ising_pf = Ising.partitionfunc(isingmodel)
+
+    prob_exact = Ising.pdf.(Ref(isingmodel), spinstates(isingmodel); pfunc=ising_pf)
     prob_rbm = Dict(epoch => Vector{Float64}(undef, 2^CONFIG.nspins)
         for epoch in CONFIG.sample_epochs
     )
 
-    cb = callback(CONFIG.sample_epochs, prob_exact, prob_rbm, kldivs_exact, kldivs_approx)
+    cb = callback(
+        ising_pf, CONFIG.sample_epochs, prob_exact, prob_rbm, kldivs_exact, kldivs_approx
+    )
     rbm, kern = train(cb, isingmodel, CONFIG)
 
     plot(0:CONFIG.nepochs, [kldivs_exact kldivs_approx], label=["Exact" "Approx"],
@@ -73,13 +77,15 @@ function main()
     savefig("pdf_1D.pdf")
 end
 
-callback(sample_epochs, prob_exact, prob_rbm, kldivs_exact, kldivs_approx) =
+callback(ising_pf, sample_epochs, prob_exact, prob_rbm, kldivs_exact, kldivs_approx) =
 function(epoch, nepochs, rbm, ising, ising_samples)
     epochfmt(epoch) = lpad(epoch, ndigits(nepochs))
     numfmt(num) = @sprintf("%.5f", num)
     deltafmt(num) = @sprintf("%+.5f", num)
 
-    kld_exact = kldiv(rbm, Ising.pdf(ising))
+    rbm_pf = RBM.partitionfunc(rbm)
+
+    kld_exact = kldiv(rbm, Ising.pdf(ising; pfunc=ising_pf))
     kld_approx = kldiv(rbm, ising_samples)
     kldivs_exact[epoch+1] = kld_exact
     kldivs_approx[epoch+1] = kld_approx
@@ -92,7 +98,7 @@ function(epoch, nepochs, rbm, ising, ising_samples)
     )
 
     if epoch in sample_epochs
-        prob_rbm[epoch] .= RBM.input_pdf.(Ref(rbm), bitstrings(rbm.inputsize))
+        prob_rbm[epoch] .= RBM.input_pdf.(Ref(rbm), bitstrings(rbm.inputsize); pfunc=rbm_pf)
     end
 end
 

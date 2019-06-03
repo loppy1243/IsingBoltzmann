@@ -14,9 +14,7 @@ export RestrictedBoltzmann,
        energy, partitionfunc, pdf, input_pdf, kldiv,
        KLDivGradKernels, update!, train!
 
-struct RestrictedBoltzmann{
-        T, V<:AbstractVector{T}, M<:AbstractMatrix{T}, Rf<:Ref{Union{T, Nothing}}
-}
+struct RestrictedBoltzmann{T, V<:AbstractVector{T}, M<:AbstractMatrix{T}}
     inputsize::Int
     hiddensize::Int
     
@@ -28,13 +26,10 @@ struct RestrictedBoltzmann{
     ## Hyperparameters
     learning_rate::Float64
     cd_num::Int
-
-    ## Scratch space
-    partitionfunc::Rf
 end
 function RestrictedBoltzmann(
         inputbias, hiddenbias, weights;
-        learning_rate, cd_num, partitionfunc=nothing
+        learning_rate, cd_num
 )
     # This function might not be intended for public use...
     T = Base.promote_eltype(inputbias, hiddenbias, weights)
@@ -43,19 +38,16 @@ function RestrictedBoltzmann(
     inputbias = convert(AbstractArray{T}, inputbias)
     hiddenbias = convert(AbstractArray{T}, hiddenbias)
     weights = convert(AbstractArray{T}, weights)
-    ref = Ref{Union{T, Nothing}}(partitionfunc)
 
-    RestrictedBoltzmann{T, typeof(inputbias), typeof(weights), typeof(ref)}(
+    RestrictedBoltzmann{T, typeof(inputbias), typeof(weights)}(
         length(inputbias), length(hiddenbias),
-        inputbias, hiddenbias, weights, learning_rate, cd_num,
-        ref
+        inputbias, hiddenbias, weights, learning_rate, cd_num
     )
 end
 function RestrictedBoltzmann(
         inputsize, hiddensize;
         init=zeros, inputbias_init=nothing, hiddenbias_init=nothing, weights_init=nothing,
-        learning_rate, cd_num,
-        partitionfunc=nothing
+        learning_rate, cd_num
 )
     inputbias = if isnothing(inputbias_init)
         init((inputsize,)) else inputbias_init((inputsize,))
@@ -72,8 +64,7 @@ function RestrictedBoltzmann(
 
     RestrictedBoltzmann(
         inputbias, hiddenbias, weights;
-        learning_rate=learning_rate, cd_num=cd_num,
-        partitionfunc=partitionfunc
+        learning_rate=learning_rate, cd_num=cd_num
     )
 end
 
@@ -93,18 +84,32 @@ eff_energy(rbm, inputs) = -rbm.inputbias'inputs - (
     end
 )
 
-partitionfunc(rbm) = isnothing(rbm.partitionfunc[]) ? _partitionfunc(rbm) : rbm.partitionfunc[]
-_partitionfunc(rbm) = rbm.partitionfunc[] = sum(
+partitionfunc(rbm) = sum(
     exp(-energy(rbm, inputs, hiddens))
     for hiddens in bitstrings(rbm.hiddensize),
         inputs  in bitstrings(rbm.inputsize)
 )
 
-pdf(rbm) = (inputs, hiddens) -> RBM.pdf(rbm, inputs, hiddens)
-pdf(rbm, inputs, hiddens) = exp(-energy(rbm, inputs, hiddens))/partitionfunc(rbm)
-input_pdf(rbm) = inputs -> RBM.input_pdf(rbm, inputs)
-function input_pdf(rbm, inputs)
-    exp(-eff_energy(rbm, inputs))/partitionfunc(rbm)
+function pdf(rbm; pfunc=nothing)
+    isnothing(pfunc) && (pfunc = RBM.partitionfunc(rbm))
+
+    (inputs, hiddens) -> RBM.pdf(rbm, inputs, hiddens; pfunc=pfunc)
+end
+function pdf(rbm, inputs, hiddens; pfunc=nothing)
+    isnothing(pfunc) && (pfunc = RBM.partitionfunc(rbm))
+
+    exp(-energy(rbm, inputs, hiddens))/pfunc
+end
+
+function input_pdf(rbm; pfunc=nothing)
+    isnothing(pfunc) && (pfunc = RBM.partitionfunc(rbm))
+
+    inputs -> RBM.input_pdf(rbm, inputs; pfunc=pfunc)
+end
+function input_pdf(rbm, inputs; pfunc=nothing)
+    isnothing(pfunc) && (pfunc = RBM.partitionfunc(rbm))
+
+    exp(-eff_energy(rbm, inputs))/pfunc
 end
 
 sigmoid(x) = inv(one(x)+exp(-x))
@@ -202,16 +207,22 @@ function entropy(batch)
 end
 
 ## Exact
-kldiv(rbm, target_pdf::Function) = sum(bitstrings(rbm.inputsize)) do inputs
-    p = target_pdf(inputs)
-    p*log(p/input_pdf(rbm, inputs))
+function kldiv(rbm, target_pdf::Function; pfunc=nothing)
+    isnothing(pfunc) && (pfunc = RBM.partitionfunc(rbm))
+
+    sum(bitstrings(rbm.inputsize)) do inputs
+        p = target_pdf(inputs)
+        p*log(p/input_pdf(rbm, inputs; pfunc=pfunc))
+    end
 end
 ## Approximation
-function kldiv(rbm, batch)
+function kldiv(rbm, batch; pfunc=nothing)
+    isnothing(pfunc) && (pfunc = RBM.partitionfunc(rbm))
+
     L = length(batch)
 
     avg_log_likelihood = mean(batch) do σ
-        log(input_pdf(rbm, σ))
+        log(input_pdf(rbm, σ; pfunc=pfunc))
     end
 
     entrop = entropy(batch)
@@ -337,7 +348,6 @@ end
     rbm.inputbias  .-= rbm.learning_rate.*σgrad
     rbm.hiddenbias .-= rbm.learning_rate.*hgrad
     rbm.weights    .-= rbm.learning_rate.*Wgrad
-    rbm.partitionfunc[] = nothing
 
     rbm
 end
