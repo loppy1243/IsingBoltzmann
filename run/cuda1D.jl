@@ -21,8 +21,8 @@ const CONFIG = IsingBoltzmann.AppConfig(
     
     nhiddens=6,
     learning_rate=0.1,
-    cd_num=5,
     kldiv_grad_kernel=KLDivGradKernels.CuExactKernel,
+    kernel_kwargs=Dict(:cd_num=>5),
 
     nepochs=1000,
     nsamples=10^5,

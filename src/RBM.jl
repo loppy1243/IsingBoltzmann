@@ -28,16 +28,9 @@ struct RestrictedBoltzmann{T, V<:AbstractVector{T}, M<:AbstractMatrix{T}}
     inputbias::V
     hiddenbias::V
     weights::M
-
-    ## Hyperparameters
-    learning_rate::Float64
-    cd_num::Int
 end
 
-function RestrictedBoltzmann(
-        inputbias, hiddenbias, weights;
-        learning_rate, cd_num
-)
+function RestrictedBoltzmann(inputbias, hiddenbias, weights)
     # This function might not be intended for public use...
     T = Base.promote_eltype(inputbias, hiddenbias, weights)
 
@@ -47,14 +40,12 @@ function RestrictedBoltzmann(
     weights = convert(AbstractArray{T}, weights)
 
     RestrictedBoltzmann{T, typeof(inputbias), typeof(weights)}(
-        length(inputbias), length(hiddenbias),
-        inputbias, hiddenbias, weights, learning_rate, cd_num
+        length(inputbias), length(hiddenbias), inputbias, hiddenbias, weights
     )
 end
 function RestrictedBoltzmann(
         inputsize, hiddensize;
-        init=zeros, inputbias_init=nothing, hiddenbias_init=nothing, weights_init=nothing,
-        learning_rate, cd_num
+        init=zeros, inputbias_init=nothing, hiddenbias_init=nothing, weights_init=nothing
 )
     inputbias = if isnothing(inputbias_init)
         init((inputsize,)) else inputbias_init((inputsize,))
@@ -69,10 +60,7 @@ function RestrictedBoltzmann(
         init((hiddensize, inputsize)) else weights_init((hiddensize, inputsize))
     end
 
-    RestrictedBoltzmann(
-        inputbias, hiddenbias, weights;
-        learning_rate=learning_rate, cd_num=cd_num
-    )
+    RestrictedBoltzmann(inputbias, hiddenbias, weights)
 end
 
 Base.eltype(::Type{<:RestrictedBoltzmann{T}}) where T = T
@@ -141,22 +129,28 @@ struct AltGibbsSampler{V, Rbm<:RestrictedBoltzmann} <: Random.Sampler{NTuple{2, 
     rbm::Rbm
     inputs::V
     hiddens::V
+    cd_num::Int
 
-    AltGibbsSampler(rbm, inputs, hiddens) =
-        new{nodestype(rbm), typeof(rbm)}(rbm, inputs, hiddens)
+    AltGibbsSampler(rbm, inputs, hiddens; cd_num) =
+        new{nodestype(rbm), typeof(rbm)}(rbm, inputs, hiddens, cd_num)
 end
 
-AltGibbsSampler(init::UndefInitializer, rbm) =
-    AltGibbsSampler(rbm, nodestype(rbm)(init, rbm.inputsize), nodestype(rbm)(init, rbm.hiddensize))
+AltGibbsSampler(init::UndefInitializer, rbm; cd_num) =
+    AltGibbsSampler(
+        rbm, nodestype(rbm)(init, rbm.inputsize), nodestype(rbm)(init, rbm.hiddensize);
+        cd_num=cd_num
+    )
 @default_first_arg(
-function AltGibbsSampler(rng::AbstractRNG=GLOBAL_RNG, rbm::RestrictedBoltzmann, inputs0)
+function AltGibbsSampler(
+        rng::AbstractRNG=GLOBAL_RNG, rbm::RestrictedBoltzmann, inputs0; cd_num
+)
     hiddens = nodestype(rbm)(undef, rbm.hiddensize)
 
     for k in eachindex(hiddens)
         hiddens[k] = rand(rng) <= condprob_hidden1(rbm, k, inputs0)
     end
 
-    AltGibbsSampler(rbm, copy(inputs0), hiddens)
+    AltGibbsSampler(rbm, copy(inputs0), hiddens; cd_num=cd_num)
 end)
 
 @default_first_arg(
@@ -179,9 +173,9 @@ state of `ag`.
 """
 function altgibbs end
 @default_first_arg function altgibbs(
-        rng=GLOBAL_RNG, rbm::RestrictedBoltzmann, inputs0; copy=true
+        rng=GLOBAL_RNG, rbm::RestrictedBoltzmann, inputs0; cd_num, copy=true
 )
-    ret = AltGibbsSampler(rng, rbm, inputs0)
+    ret = AltGibbsSampler(rng, rbm, inputs0; cd_num=cd_num)
     ret, copy ? Base.copy(ret.hiddens) : ret.hiddens
 end
 
@@ -198,7 +192,7 @@ function altgibbs! end
 end
 
 function Random.rand(rng::AbstractRNG, cd::AltGibbsSampler; copy=true)
-    for _ = 1:cd.rbm.cd_num
+    for _ = 1:cd.cd_num
         for k in eachindex(cd.inputs)
             @inbounds cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
         end
@@ -211,7 +205,7 @@ function Random.rand(rng::AbstractRNG, cd::AltGibbsSampler; copy=true)
 end
 
 function Random.rand!(rng::AbstractRNG, (inputs, hiddens), cd::AltGibbsSampler)
-    for _ = 1:cd.rbm.cd_num
+    for _ = 1:cd.cd_num
         for k in eachindex(cd.inputs)
             @inbounds inputs[k] = cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
         end
@@ -286,9 +280,9 @@ module KLDivGradKernels
         condavg_h::V
         hσ_prod::M
     end
-    ExactKernel(rbm) =
+    ExactKernel(rbm; cd_num) =
         ExactKernel{eltype(rbm), biastype(rbm), weightstype(rbm), nodestype(rbm)}(
-            AltGibbsSampler(undef, rbm),
+            AltGibbsSampler(undef, rbm; cd_num=cd_num),
             Grad(rbm),
             biastype(rbm)(undef, rbm.hiddensize),
             weightstype(rbm)(undef, rbm.hiddensize, rbm.inputsize)
@@ -302,9 +296,9 @@ module KLDivGradKernels
         pos_h::N
         hσ_prod::M
     end
-    ApproxKernel(rbm) =
+    ApproxKernel(rbm; cd_num) =
         ApproxKernel{eltype(rbm), biastype(rbm), weightstype(rbm), nodestype(rbm)}(
-            AltGibbsSampler(undef, rbm),
+            AltGibbsSampler(undef, rbm; cd_num=cd_num),
             Grad(rbm),
             nodestype(rbm)(undef, rbm.hiddensize),
             weightstype(rbm)(undef, rbm.hiddensize, rbm.inputsize)

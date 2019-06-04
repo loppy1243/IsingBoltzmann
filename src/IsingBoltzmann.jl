@@ -31,6 +31,7 @@ Base.@kwdef mutable struct AppConfig
     learning_rate::Float64
     cd_num::Int
     kldiv_grad_kernel::Type{<:KLDivGradKernel}
+    kernel_kwargs::Dict{Symbol, Any}
 
     nepochs::Int
     nsamples::Int
@@ -66,9 +67,7 @@ function cpu_rbm(config)
     init(dims) =
         sqrt(inv(config.nspins+config.nhiddens)).*2.0.*(rand(config.rng, dims...) .- 0.5)
 
-    RestrictedBoltzmann(config.nspins, config.nhiddens;
-        init=init, learning_rate=config.learning_rate, cd_num=config.cd_num
-    )
+    RestrictedBoltzmann(config.nspins, config.nhiddens; init=init)
 end
 
 _nothing(_...) = nothing
@@ -80,14 +79,15 @@ function _train(cb, ising, config)
     rbmachine = rbm(config)
     local kern
     try
-        kern = config.kldiv_grad_kernel(rbmachine)
+        kern = config.kldiv_grad_kernel(rbmachine; config.kernel_kwargs...)
     catch ex
         ex isa MethodError && ex.f == config.kldiv_grad_kernel || rethrow()
         error(
             "Don't know how to build kernel ", config.kldiv_grad_kernel, " from given ",
             "configuration.\n\n",
-            "Provide a method ", config.kldiv_grad_kernel, "(::", typeof(rbmachine), ") or ",
-            "construct RBM and kernel explicitly and pass to train!()."
+            "Provide a method ", config.kldiv_grad_kernel,"(::", typeof(rbmachine), ";",
+            (i == 1 ? " $x" : ", $x" for (i, x) in enumerate(keys(config.kernel_kwargs)))...,
+            ") or construct RBM and kernel explicitly and pass to train!()."
         )
     end
 
