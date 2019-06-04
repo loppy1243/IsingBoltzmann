@@ -4,9 +4,8 @@ using IsingBoltzmann
 ## stdlib ######################################################################
 import Dates
 ## External ####################################################################
-using Plots; Plots.gr()
-using CuArrays
 import CuArrays.CURAND, CUDAnative
+using Plots; Plots.gr()
 ################################################################################
 ## Individual: Internal ########################################################
 using IsingBoltzmann: bitstrings
