@@ -182,11 +182,13 @@ function Random.rand(rng::AbstractRNG, cd::AltGibbsSampler; copy=true)
     copy ? (Base.copy(cd.inputs), Base.copy(cd.hiddens)) : (cd.inputs, cd.hiddens)
 end
 function Random.rand!(rng::AbstractRNG, (inputs, hiddens), cd::AltGibbsSampler)
-    for k in eachindex(cd.inputs)
-        inputs[k] = cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
-    end
-    for k in eachindex(cd.hiddens)
-        hiddens[k] = cd.hiddens[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
+    for _ = 1:cd.rbm.cd_num
+        for k in eachindex(cd.inputs)
+            inputs[k] = cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
+        end
+        for k in eachindex(cd.hiddens)
+            hiddens[k] = cd.hiddens[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
+        end
     end
 
     (inputs, hiddens)
