@@ -29,17 +29,21 @@ function AltGibbsSampler!(rng::CURAND.RNG, ag::CuAltGibbsSampler, inputs0)
 end
 
 function Random.rand(rng::CURAND.RNG, cd::CuAltGibbsSampler; copy=true)
-    cd.inputs .= rand(rng, cd.rbm.inputsize) .<= condprob_input1(cd.rbm, cd.hiddens)
-    cd.hiddens .= rand(rng, cd.rbm.hiddensize) .<= condprob_hidden1(cd.rbm, cd.inputs)
+    for _ = 1:cd.rbm.cd_num
+        cd.inputs .= rand(rng, cd.rbm.inputsize) .<= condprob_input1(cd.rbm, cd.hiddens)
+        cd.hiddens .= rand(rng, cd.rbm.hiddensize) .<= condprob_hidden1(cd.rbm, cd.inputs)
+    end
 
     copy ? (Base.copy(cd.inputs), Base.copy(cd.hiddens)) : (cd.inputs, cd.hiddens)
 end
 
 function Random.rand!(rng::CURAND.RNG, (inputs, hiddens), cd::CuAltGibbsSampler)
-    inputs  .= cd.inputs  .= rand(rng, cd.rbm.inputsize) #=
-                             =# .<= condprob_input1(cd.rbm, cd.hiddens)
-    hiddens .= cd.hiddens .= rand(rng, cd.rbm.hiddensize) #=
-                             =# .<= condprob_hidden1(cd.rbm, cd.inputs)
+    for _ = 1:cd.rbm.cd_num
+        inputs  .= cd.inputs  .= rand(rng, cd.rbm.inputsize) #=
+                                 =# .<= condprob_input1(cd.rbm, cd.hiddens)
+        hiddens .= cd.hiddens .= rand(rng, cd.rbm.hiddensize) #=
+                                 =# .<= condprob_hidden1(cd.rbm, cd.inputs)
+    end
 
     (inputs, hiddens)
 end
