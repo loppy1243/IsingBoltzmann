@@ -170,11 +170,13 @@ function altgibbs! end
 end
 
 function Random.rand(rng::AbstractRNG, cd::AltGibbsSampler; copy=true)
-    for k in eachindex(cd.inputs)
-        cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
-    end
-    for k in eachindex(cd.hiddens)
-        cd.hiddens[k] = rand(rng) <= condprob_hidden1(cd.rbm, k, cd.inputs)
+    for _ = 1:cd.rbm.cd_num
+        for k in eachindex(cd.inputs)
+            cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
+        end
+        for k in eachindex(cd.hiddens)
+            cd.hiddens[k] = rand(rng) <= condprob_hidden1(cd.rbm, k, cd.inputs)
+        end
     end
 
     copy ? (Base.copy(cd.inputs), Base.copy(cd.hiddens)) : (cd.inputs, cd.hiddens)
