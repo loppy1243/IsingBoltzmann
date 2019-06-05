@@ -15,6 +15,7 @@ StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+CuArrays = "3a865a2d-5b23-5a0f-bc46-62713ec82fae"
 
 [targets]
 test = ["Test"]
