@@ -28,14 +28,11 @@ Base.@kwdef mutable struct AppConfig
     boundarycond::Ising.BoundaryCondition
 
     nhiddens::Int
-    learning_rate::Float64
-    cd_num::Int
     kldiv_grad_kernel::Type{<:KLDivGradKernel}
     kernel_kwargs::Dict{Symbol, Any}
+    # Flux doesn't have an abstract type for optimizers...
+    optimizer::Any
 
-    nepochs::Int
-    nsamples::Int
-    batchsize::Int
     rng::AbstractRNG
 
     cuarrays::Bool=false
@@ -70,12 +67,11 @@ function cpu_rbm(config)
     RestrictedBoltzmann(config.nspins, config.nhiddens; init=init)
 end
 
-_nothing(_...) = nothing
+_nothing(_...) = false
 
-train(config) = _train(_nothing, ising(config), config)
-train(cb, config) = _train(cb, ising(config), config)
-train(cb, ising, config) = _train(cb, ising, config)
-function _train(cb, ising, config)
+train(minibatches, config) = train(_nothing, 1, minibatches, config)
+train(nepochs, minibatches, config) = train(_nothing, nepochs, minibatches, config)
+function train(cb, nepochs, minibatches, config)
     rbmachine = rbm(config)
     local kern
     try
@@ -91,27 +87,28 @@ function _train(cb, ising, config)
         )
     end
 
-    metro = MetropolisIsingSampler(ising; init=dims -> spinrand(config.rng, dims))
-    ising_samples = rand(config.rng, metro, config.nsamples)
-
-    _train!(
-        cb, config.rng, rbmachine, kern, ising, ising_samples, config.batchsize,
-        config.nepochs
-    )
+    rng = config.cuarrays ? config.curng : config.rng
+    train!(cb, rng, nepochs, rbmachine, kern, config.optimizer, minibatches)
 end
 
-train!(args...) = _train!(_nothing, Random.GLOBAL_RNG, args...)
-train!(cb::Function, args...) = _train!(cb, Random.GLOBAL_RNG, args...)
-train!(rng::AbstractRNG, args...) = _train!(_nothing, rng, args...)
-train!(kern::KLDivGradKernel, args...) = _train!(_nothing, rng, args...)
-train!(cb::Function, rng::AbstractRNG, args...) = _train!(rng, cb, args...)
-function _train!(cb, rng, rbm, kern, ising, ising_samples, batchsize, nepochs)
-    batches = batch(map(vec, ising_samples), batchsize)
+let _Args = Vararg{Any, 5}
+    global train!
+    train!(args::_Args) = train!(_nothing, GLOBAL_RNG, args...)
+    train!(rng::AbstractRNG, args::_Args) = train!(_nothing, rng, args...)
+end
+train!(cb::Function, rng::AbstractRNG, nepochs, rbm, kern, opt, minibatches) =
+    train!(cb, rng, nepochs, rbm, kern, opt, nepochs, _->minibatches)
+function train!(cb::Function, rng::AbstractRNG, nepochs, rbm, kern, opt, nextbatch::Function)
+    done = false
     for epoch = 1:nepochs
-        cb(epoch-1, nepochs, rbm, ising, ising_samples)
-        RBM.train!(rng, rbm, kern, batches)
+        minibatches = nextbatch()
+        cb(epoch, 0, rbm, first(minibatches)) && break
+        for (n, mb) in enumerate(minibatches)
+            RBM.update!(rng, rbm, kern, opt, mb)
+            cb(epoch, n, rbm, mb) && (done = true; break)
+        end
+        done && break
     end
-    cb(nepochs, nepochs, rbm, ising, ising_samples)
 
     rbm, kern
 end
