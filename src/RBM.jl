@@ -1,6 +1,8 @@
 module RBM
 ## stdlib ######################################################################
 using Random, Statistics
+## External ####################################################################
+import Flux.Optimise
 ################################################################################
 ## Individual: Internal ########################################################
 using ..IsingBoltzmann: bitstrings, @default_first_arg
@@ -308,16 +310,16 @@ end
 
 condavg_hidden!(out, rbm, σ) = out .= sigmoid.(rbm.hiddenbias .+ mul!(out, rbm.weights, σ))
 ## Exact hidden conditional mean.
-function (kern::ExactKernel)(rng, rbm, batch)
+function (kern::ExactKernel)(rng, rbm, minibatch)
     z = zero(eltype(rbm))
     fill!(kern.grad.inputs, z)
     fill!(kern.grad.hiddens, z)
     fill!(kern.grad.weights, z)
 
-    for σ⁺ in batch
+    for σ⁺ in minibatch
         ## NOTE the order of operations on kern.condavg_h in particular. As it stands, this is
         ## the correct order
-        
+
         altgibbs!(rng, kern.σh_sampler, σ⁺; copy=false)
         σ⁻, h⁻ = rand(rng, kern.σh_sampler; copy=false)
 
@@ -329,7 +331,7 @@ function (kern::ExactKernel)(rng, rbm, batch)
         kern.grad.weights .+= mul!(kern.hσ_prod, h⁻, σ⁻')
         kern.grad.weights .-= mul!(kern.hσ_prod, kern.condavg_h, σ⁺')
     end
-    L = length(batch)
+    L = length(minibatch)
     kern.grad.inputs  ./= L
     kern.grad.hiddens ./= L
     kern.grad.weights ./= L
@@ -338,22 +340,22 @@ function (kern::ExactKernel)(rng, rbm, batch)
 end
 
 ## Approximate hidden conditional mean.
-function (kern::ApproxKernel)(rng, rbm, batch)
+function (kern::ApproxKernel)(rng, rbm, minibatch)
     z = zero(eltype(rbm))
     fill!(kern.grad.inputs, z)
     fill!(kern.grad.hiddens, z)
     fill!(kern.grad.weights, z)
 
-    for σ⁺ in batch
+    for σ⁺ in minibatch
         kern.pos_h .= altgibbs!(rng, kern.σh_sampler, σ⁺; copy=false)
         σ⁻, h⁻ = rand(rng, kern.σh_sampler; copy=false)
 
-        kern.grad.inputs .+= σ⁻ .- σ⁺
+        kern.grad.inputs  .+= σ⁻ .- σ⁺
         kern.grad.hiddens .+= h⁻ .- kern.pos_h
         kern.grad.weights .+= mul!(kern.hσ_prod, h⁻, σ⁻')
         kern.grad.weights .-= mul!(kern.hσ_prod, kern.pos_h, σ⁺')
     end
-    L = length(batch)
+    L = length(minibatch)
     kern.grad.inputs  ./= L
     kern.grad.hiddens ./= L
     kern.grad.weights ./= L
@@ -361,12 +363,12 @@ function (kern::ApproxKernel)(rng, rbm, batch)
     kern.grad.inputs, kern.grad.hiddens, kern.grad.weights
 end
 
-@default_first_arg function update!(rng::AbstractRNG=GLOBAL_RNG, rbm, kern, batch)
-    σgrad, hgrad, Wgrad = kern(rng, rbm, batch)
+@default_first_arg function update!(rng::AbstractRNG=GLOBAL_RNG, rbm, kern, opt, minibatch)
+    σgrad, hgrad, Wgrad = kern(rng, rbm, minibatch)
 
-    rbm.inputbias  .-= rbm.learning_rate.*σgrad
-    rbm.hiddenbias .-= rbm.learning_rate.*hgrad
-    rbm.weights    .-= rbm.learning_rate.*Wgrad
+    rbm.inputbias  .-= Optimise.apply!(opt, rbm.inputbias, σgrad)
+    rbm.hiddenbias .-= Optimise.apply!(opt, rbm.hiddenbias, hgrad)
+    rbm.weights    .-= Optimise.apply!(opt, rbm.weights, Wgrad)
 
     rbm
 end
