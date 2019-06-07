@@ -82,12 +82,12 @@ function _train(cb, ising, config)
         kern = config.kldiv_grad_kernel(rbmachine; config.kernel_kwargs...)
     catch ex
         ex isa MethodError && ex.f == config.kldiv_grad_kernel || rethrow()
+        kwparams_str = join(string.(keys(config.kernel_kwargs)), ", ")
         error(
             "Don't know how to build kernel ", config.kldiv_grad_kernel, " from given ",
             "configuration.\n\n",
             "Provide a method ", config.kldiv_grad_kernel,"(::", typeof(rbmachine), ";",
-            (i == 1 ? " $x" : ", $x" for (i, x) in enumerate(keys(config.kernel_kwargs)))...,
-            ") or construct RBM and kernel explicitly and pass to train!()."
+            kwparams_str, ") or construct RBM and kernel explicitly and pass to train!()."
         )
     end
 
