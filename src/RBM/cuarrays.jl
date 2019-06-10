@@ -29,7 +29,7 @@ function AltGibbsSampler!(rng::CURAND.RNG, ag::CuAltGibbsSampler, inputs0)
 end
 
 function Random.rand(rng::CURAND.RNG, cd::CuAltGibbsSampler; copy=true)
-    for _ = 1:cd.rbm.cd_num
+    for _ = 1:cd.cd_num
         cd.inputs .= rand(rng, cd.rbm.inputsize) .<= condprob_input1(cd.rbm, cd.hiddens)
         cd.hiddens .= rand(rng, cd.rbm.hiddensize) .<= condprob_hidden1(cd.rbm, cd.inputs)
     end
@@ -38,7 +38,7 @@ function Random.rand(rng::CURAND.RNG, cd::CuAltGibbsSampler; copy=true)
 end
 
 function Random.rand!(rng::CURAND.RNG, (inputs, hiddens), cd::CuAltGibbsSampler)
-    for _ = 1:cd.rbm.cd_num
+    for _ = 1:cd.cd_num
         inputs  .= cd.inputs  .= rand(rng, cd.rbm.inputsize) #=
                                  =# .<= condprob_input1(cd.rbm, cd.hiddens)
         hiddens .= cd.hiddens .= rand(rng, cd.rbm.hiddensize) #=
@@ -54,29 +54,9 @@ end
 
     const CuExactKernel{T} = ExactKernel{T, CuVector{T}, CuMatrix{T}}
     const CuApproxKernel{T} = ApproxKernel{T, CuVector{T}, CuMatrix{T}, CuVector{Bool}}
-    CuExactKernel(rbm::CuRestrictedBoltzmann) = ExactKernel(rbm)
-    CuApproxKernel(rbm::CuRestrictedBoltzmann) = ApproxKernel(rbm)
+    CuExactKernel(rbm::CuRestrictedBoltzmann; kwargs...) = ExactKernel(rbm; kwargs...)
+    CuApproxKernel(rbm::CuRestrictedBoltzmann; kwargs...) = ApproxKernel(rbm; kwargs...)
 
     export CuExactKernel, CuApproxKernel
 end
 @reexport using .KLDivGradKernels
-
-train!(rng::AbstractRNG, rbm::CuRestrictedBoltzmann, kern, minibatches) =
-    error("Must use CUDA RNG with CuArrays")
-train!(rbm::CuRestrictedBoltzmann, kern, minibatches) =
-    error("Must pass CUDA RNG explicitly with CuArrays")
-function train!(rng::CURAND.RNG, rbm::CuRestrictedBoltzmann, kern, minibatches)
-    perm = randperm(rng, size(minibatches, ndims(minibatches)))
-    permute!(minibatches, perm)
-
-    cu_b = Vector{CuVector{Bool}}(undef, length(minibatches[1]))
-    for k in eachindex(batch)
-        cu_b[k] = CuVector{Bool}(undef, length(minibatches[1][1]))
-    end
-    for b in minibatches
-        copyto!.(cu_b, b)
-        CuArrays.@sync update!(rng, rbm, kern, cu_b)
-    end
-
-    perm
-end

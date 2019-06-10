@@ -7,7 +7,5 @@ function cuarrays_rbm(config)
         sqrt(inv(config.nspins+config.nhiddens)).*2.0.*(rand(config.rng, dims...) .- 0.5) #=
         =# |> cu
 
-    RestrictedBoltzmann(config.nspins, config.nhiddens;
-        init=init, learning_rate=config.learning_rate, cd_num=config.cd_num
-    )
+    RestrictedBoltzmann(config.nspins, config.nhiddens; init=init)
 end

@@ -1,6 +1,8 @@
 module RBM
 ## stdlib ######################################################################
 using Random, Statistics
+## External ####################################################################
+import Flux.Optimise
 ################################################################################
 ## Individual: Internal ########################################################
 using ..IsingBoltzmann: bitstrings, @default_first_arg
@@ -18,7 +20,7 @@ export RestrictedBoltzmann,
        biastype, weightstype, nodestype,
        copyweights!,
        energy, partitionfunc, pdf, input_pdf, kldiv,
-       KLDivGradKernels, update!, train!
+       KLDivGradKernels, update!
 
 struct RestrictedBoltzmann{T, V<:AbstractVector{T}, M<:AbstractMatrix{T}}
     inputsize::Int
@@ -28,16 +30,9 @@ struct RestrictedBoltzmann{T, V<:AbstractVector{T}, M<:AbstractMatrix{T}}
     inputbias::V
     hiddenbias::V
     weights::M
-
-    ## Hyperparameters
-    learning_rate::Float64
-    cd_num::Int
 end
 
-function RestrictedBoltzmann(
-        inputbias, hiddenbias, weights;
-        learning_rate, cd_num
-)
+function RestrictedBoltzmann(inputbias, hiddenbias, weights)
     # This function might not be intended for public use...
     T = Base.promote_eltype(inputbias, hiddenbias, weights)
 
@@ -47,14 +42,12 @@ function RestrictedBoltzmann(
     weights = convert(AbstractArray{T}, weights)
 
     RestrictedBoltzmann{T, typeof(inputbias), typeof(weights)}(
-        length(inputbias), length(hiddenbias),
-        inputbias, hiddenbias, weights, learning_rate, cd_num
+        length(inputbias), length(hiddenbias), inputbias, hiddenbias, weights
     )
 end
 function RestrictedBoltzmann(
         inputsize, hiddensize;
-        init=zeros, inputbias_init=nothing, hiddenbias_init=nothing, weights_init=nothing,
-        learning_rate, cd_num
+        init=zeros, inputbias_init=nothing, hiddenbias_init=nothing, weights_init=nothing
 )
     inputbias = if isnothing(inputbias_init)
         init((inputsize,)) else inputbias_init((inputsize,))
@@ -69,10 +62,7 @@ function RestrictedBoltzmann(
         init((hiddensize, inputsize)) else weights_init((hiddensize, inputsize))
     end
 
-    RestrictedBoltzmann(
-        inputbias, hiddenbias, weights;
-        learning_rate=learning_rate, cd_num=cd_num
-    )
+    RestrictedBoltzmann(inputbias, hiddenbias, weights)
 end
 
 Base.eltype(::Type{<:RestrictedBoltzmann{T}}) where T = T
@@ -141,22 +131,28 @@ struct AltGibbsSampler{V, Rbm<:RestrictedBoltzmann} <: Random.Sampler{NTuple{2, 
     rbm::Rbm
     inputs::V
     hiddens::V
+    cd_num::Int
 
-    AltGibbsSampler(rbm, inputs, hiddens) =
-        new{nodestype(rbm), typeof(rbm)}(rbm, inputs, hiddens)
+    AltGibbsSampler(rbm, inputs, hiddens; cd_num) =
+        new{nodestype(rbm), typeof(rbm)}(rbm, inputs, hiddens, cd_num)
 end
 
-AltGibbsSampler(init::UndefInitializer, rbm) =
-    AltGibbsSampler(rbm, nodestype(rbm)(init, rbm.inputsize), nodestype(rbm)(init, rbm.hiddensize))
+AltGibbsSampler(init::UndefInitializer, rbm; cd_num) =
+    AltGibbsSampler(
+        rbm, nodestype(rbm)(init, rbm.inputsize), nodestype(rbm)(init, rbm.hiddensize);
+        cd_num=cd_num
+    )
 @default_first_arg(
-function AltGibbsSampler(rng::AbstractRNG=GLOBAL_RNG, rbm::RestrictedBoltzmann, inputs0)
+function AltGibbsSampler(
+        rng::AbstractRNG=GLOBAL_RNG, rbm::RestrictedBoltzmann, inputs0; cd_num
+)
     hiddens = nodestype(rbm)(undef, rbm.hiddensize)
 
     for k in eachindex(hiddens)
         hiddens[k] = rand(rng) <= condprob_hidden1(rbm, k, inputs0)
     end
 
-    AltGibbsSampler(rbm, copy(inputs0), hiddens)
+    AltGibbsSampler(rbm, copy(inputs0), hiddens; cd_num=cd_num)
 end)
 
 @default_first_arg(
@@ -179,9 +175,9 @@ state of `ag`.
 """
 function altgibbs end
 @default_first_arg function altgibbs(
-        rng=GLOBAL_RNG, rbm::RestrictedBoltzmann, inputs0; copy=true
+        rng=GLOBAL_RNG, rbm::RestrictedBoltzmann, inputs0; cd_num, copy=true
 )
-    ret = AltGibbsSampler(rng, rbm, inputs0)
+    ret = AltGibbsSampler(rng, rbm, inputs0; cd_num=cd_num)
     ret, copy ? Base.copy(ret.hiddens) : ret.hiddens
 end
 
@@ -198,7 +194,7 @@ function altgibbs! end
 end
 
 function Random.rand(rng::AbstractRNG, cd::AltGibbsSampler; copy=true)
-    for _ = 1:cd.rbm.cd_num
+    for _ = 1:cd.cd_num
         for k in eachindex(cd.inputs)
             @inbounds cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
         end
@@ -211,7 +207,7 @@ function Random.rand(rng::AbstractRNG, cd::AltGibbsSampler; copy=true)
 end
 
 function Random.rand!(rng::AbstractRNG, (inputs, hiddens), cd::AltGibbsSampler)
-    for _ = 1:cd.rbm.cd_num
+    for _ = 1:cd.cd_num
         for k in eachindex(cd.inputs)
             @inbounds inputs[k] = cd.inputs[k] = rand(rng) <= condprob_input1(cd.rbm, k, cd.hiddens)
         end
@@ -286,9 +282,9 @@ module KLDivGradKernels
         condavg_h::V
         hσ_prod::M
     end
-    ExactKernel(rbm) =
+    ExactKernel(rbm; cd_num) =
         ExactKernel{eltype(rbm), biastype(rbm), weightstype(rbm), nodestype(rbm)}(
-            AltGibbsSampler(undef, rbm),
+            AltGibbsSampler(undef, rbm; cd_num=cd_num),
             Grad(rbm),
             biastype(rbm)(undef, rbm.hiddensize),
             weightstype(rbm)(undef, rbm.hiddensize, rbm.inputsize)
@@ -302,9 +298,9 @@ module KLDivGradKernels
         pos_h::N
         hσ_prod::M
     end
-    ApproxKernel(rbm) =
+    ApproxKernel(rbm; cd_num) =
         ApproxKernel{eltype(rbm), biastype(rbm), weightstype(rbm), nodestype(rbm)}(
-            AltGibbsSampler(undef, rbm),
+            AltGibbsSampler(undef, rbm; cd_num=cd_num),
             Grad(rbm),
             nodestype(rbm)(undef, rbm.hiddensize),
             weightstype(rbm)(undef, rbm.hiddensize, rbm.inputsize)
@@ -314,16 +310,16 @@ end
 
 condavg_hidden!(out, rbm, σ) = out .= sigmoid.(rbm.hiddenbias .+ mul!(out, rbm.weights, σ))
 ## Exact hidden conditional mean.
-function (kern::ExactKernel)(rng, rbm, batch)
+function (kern::ExactKernel)(rng, rbm, minibatch)
     z = zero(eltype(rbm))
     fill!(kern.grad.inputs, z)
     fill!(kern.grad.hiddens, z)
     fill!(kern.grad.weights, z)
 
-    for σ⁺ in batch
+    for σ⁺ in minibatch
         ## NOTE the order of operations on kern.condavg_h in particular. As it stands, this is
         ## the correct order
-        
+
         altgibbs!(rng, kern.σh_sampler, σ⁺; copy=false)
         σ⁻, h⁻ = rand(rng, kern.σh_sampler; copy=false)
 
@@ -335,7 +331,7 @@ function (kern::ExactKernel)(rng, rbm, batch)
         kern.grad.weights .+= mul!(kern.hσ_prod, h⁻, σ⁻')
         kern.grad.weights .-= mul!(kern.hσ_prod, kern.condavg_h, σ⁺')
     end
-    L = length(batch)
+    L = length(minibatch)
     kern.grad.inputs  ./= L
     kern.grad.hiddens ./= L
     kern.grad.weights ./= L
@@ -344,22 +340,22 @@ function (kern::ExactKernel)(rng, rbm, batch)
 end
 
 ## Approximate hidden conditional mean.
-function (kern::ApproxKernel)(rng, rbm, batch)
+function (kern::ApproxKernel)(rng, rbm, minibatch)
     z = zero(eltype(rbm))
     fill!(kern.grad.inputs, z)
     fill!(kern.grad.hiddens, z)
     fill!(kern.grad.weights, z)
 
-    for σ⁺ in batch
+    for σ⁺ in minibatch
         kern.pos_h .= altgibbs!(rng, kern.σh_sampler, σ⁺; copy=false)
         σ⁻, h⁻ = rand(rng, kern.σh_sampler; copy=false)
 
-        kern.grad.inputs .+= σ⁻ .- σ⁺
+        kern.grad.inputs  .+= σ⁻ .- σ⁺
         kern.grad.hiddens .+= h⁻ .- kern.pos_h
         kern.grad.weights .+= mul!(kern.hσ_prod, h⁻, σ⁻')
         kern.grad.weights .-= mul!(kern.hσ_prod, kern.pos_h, σ⁺')
     end
-    L = length(batch)
+    L = length(minibatch)
     kern.grad.inputs  ./= L
     kern.grad.hiddens ./= L
     kern.grad.weights ./= L
@@ -367,25 +363,14 @@ function (kern::ApproxKernel)(rng, rbm, batch)
     kern.grad.inputs, kern.grad.hiddens, kern.grad.weights
 end
 
-@default_first_arg function update!(rng::AbstractRNG=GLOBAL_RNG, rbm, kern, batch)
-    σgrad, hgrad, Wgrad = kern(rng, rbm, batch)
+@default_first_arg function update!(rng::AbstractRNG=GLOBAL_RNG, rbm, kern, opt, minibatch)
+    σgrad, hgrad, Wgrad = kern(rng, rbm, minibatch)
 
-    rbm.inputbias  .-= rbm.learning_rate.*σgrad
-    rbm.hiddenbias .-= rbm.learning_rate.*hgrad
-    rbm.weights    .-= rbm.learning_rate.*Wgrad
+    rbm.inputbias  .-= Optimise.apply!(opt, rbm.inputbias, σgrad)
+    rbm.hiddenbias .-= Optimise.apply!(opt, rbm.hiddenbias, hgrad)
+    rbm.weights    .-= Optimise.apply!(opt, rbm.weights, Wgrad)
 
     rbm
-end
-
-@default_first_arg function train!(rng::AbstractRNG=GLOBAL_RNG, rbm, kern, minibatches)
-    perm = randperm(rng, size(minibatches, ndims(minibatches)))
-    permute!(minibatches, perm)
-
-    for b in minibatches
-        update!(rng, rbm, kern, b)
-    end
-
-    perm
 end
 
 end # module RBM
