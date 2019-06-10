@@ -1,4 +1,4 @@
-module IsingBoltzmann1DRun
+module IsingBoltzmannRun1D
 ## Internal ####################################################################
 using IsingBoltzmann
 ## stdlib ######################################################################
@@ -176,4 +176,4 @@ function(epoch, minibatchnum, rbm, minibatch)
     ret
 end end
 
-end # module IsingBoltzmann1DRun
+end # module IsingBoltzmannRun1D
