@@ -158,7 +158,7 @@ function(epoch, minibatchnum, rbm, minibatch)
         kld_exact_prev = kld_exact; kld_approx_prev = kld_approx
         kldivs_exact[idx] = kld_exact; kldivs_approx[idx] = kld_approx
 
-        Δklds[Δidx] = kld_exact
+        Δklds[Δidx] = Δexact
 
         Δidx == LCONFIG.n_Δkldiv_avg_samples && (full = true)
         Δidx = Δidx % LCONFIG.n_Δkldiv_avg_samples + 1
