@@ -14,7 +14,7 @@ using Random: MersenneTwister, shuffle!
 using Printf: @sprintf
 using Statistics: mean
 
-global CURNG::CURAND.RNG
+global CURNG
 DEFAULT_CONFIG() = IsingBoltzmann.AppConfig(
     spinsize=(6,),
     coupling=1.0,
@@ -89,7 +89,7 @@ function main(LCONFIG, CONFIG)
     )
 
     LCONFIG.debug && println("Creating and training RBM:")
-    train(cb, LCONFIG.nepochs, cu_minibatches_gen(ising_samples), LCONFIG, CONFIG)
+    train(cb, LCONFIG.nepochs, cu_minibatches_gen(ising_samples, LCONFIG, CONFIG), CONFIG)
 
     LCONFIG.debug && print("Creating kldiv plot...")
 
@@ -159,13 +159,16 @@ function(epoch, minibatchnum, g_rbm, minibatch)
     deltafmt(num) = @sprintf("%+.5f", num)
 
     ret = false
+    copied = false
     idx = (epoch, minibatchnum)
 
-    LCONFIG.debug && print("    Copying RBM from GPU...")
-    copyweights!(c_rbm, g_rbm)
-    LCONFIG.debug && println(" Done.")
 
     if all(in.(idx, Tuple(LCONFIG.kldiv_samples)))
+        LCONFIG.debug && print("    Copying RBM from GPU...")
+        copyweights!(c_rbm, g_rbm)
+        copied = true
+        LCONFIG.debug && println(" Done.")
+
         rbm_pf = RBM.partitionfunc(c_rbm)
 
         LCONFIG.debug && print("    Computing kldiv_exact...")
@@ -195,6 +198,11 @@ function(epoch, minibatchnum, g_rbm, minibatch)
     end
 
     if all(in.(idx, Tuple(LCONFIG.pdf_samples)))
+        if !copied
+            LCONFIG.debug && print("    Copying RBM from GPU...")
+            copyweights!(c_rbm, g_rbm)
+            LCONFIG.debug && println(" Done.")
+        end
         rbm_pf = RBM.partitionfunc(c_rbm)
 
         LCONFIG.debug && print("    Calculating RBM PDF for epoch ", epoch, "...")
