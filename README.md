@@ -23,5 +23,5 @@ I used to have a blurb here about how it doesn't work, but it _does_ work now; f
 posterity, that blurb can be found here: [README.broken.md](README.broken.md)
 
 # References
-\[1]: G. Torlai and R. G. Melko. Learning Thermodynamics with Boltzmann Machines".
+\[1]: G. Torlai and R. G. Melko. "Learning Thermodynamics with Boltzmann Machines".
 [arXiv:1606.02718v1](https://arxiv.org/abs/1606.02718v1) (2016).
